@@ -1,0 +1,3 @@
+export LIVEKIT_URL=wss://satinav-b22o2lgk.livekit.cloud
+export LIVEKIT_API_KEY=APItMSWMP3TVdfZ
+export LIVEKIT_API_SECRET=5aTOwvNSIY8Jvi5lEeBrffpb7P8n6MchhdysejZ8gcwD
