@@ -25,6 +25,8 @@ from visualnav_transformer.train.vint_train.models.nomad.nomad import (
     DenseNetwork,
     NoMaD,
 )
+from visualnav_transformer.train.vint_train.models.sati.sati import Sati
+from visualnav_transformer.train.vint_train.models.sati.sati_encoder import SatiEncoder
 from visualnav_transformer.train.vint_train.models.nomad.nomad_vint import (
     NoMaD_ViNT,
     replace_bn_with_gn,
@@ -219,6 +221,37 @@ def main(config):
             clip_sample=True,
             prediction_type="epsilon",
         )
+    elif config["model_type"] == "sati":
+        vision_encoder = SatiEncoder(
+            context_size=config["context_size"],
+            obs_encoder=config["obs_encoder"],
+            obs_encoding_size=config["obs_encoding_size"],
+            patch_size=config["patch_size"],
+            mha_num_attention_heads=config["mha_num_attention_heads"],
+            mha_num_attention_layers=config["mha_num_attention_layers"]
+        )
+        
+        noise_pred_net = ConditionalUnet1D(
+            input_dim=2,
+            global_cond_dim=config["encoding_size"],
+            down_dims=config["down_dims"],
+            cond_predict_scale=config["cond_predict_scale"],
+        )
+        
+        dist_pred_network = DenseNetwork(embedding_dim=config["encoding_size"])
+
+        model = Sati(
+            vision_encoder=vision_encoder,
+            noise_pred_net=noise_pred_net,
+            dist_pred_net=dist_pred_network,
+        )
+
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=config["num_diffusion_iters"],
+            beta_schedule="squaredcos_cap_v2",
+            clip_sample=True,
+            prediction_type="epsilon",
+        )
     else:
         raise ValueError(f"Model {config['model']} not supported")
 
@@ -326,7 +359,31 @@ def main(config):
             use_wandb=config["use_wandb"],
             eval_fraction=config["eval_fraction"],
         )
-    else:
+    elif config["model_type"] == "nomad":
+        train_eval_loop_nomad(
+            train_model=config["train"],
+            model=model,
+            optimizer=optimizer,
+            lr_scheduler=scheduler,
+            noise_scheduler=noise_scheduler,
+            train_loader=train_loader,
+            test_dataloaders=test_dataloaders,
+            transform=transform,
+            goal_mask_prob=config["goal_mask_prob"],
+            epochs=config["epochs"],
+            device=device,
+            project_folder=config["project_folder"],
+            print_log_freq=config["print_log_freq"],
+            wandb_log_freq=config["wandb_log_freq"],
+            image_log_freq=config["image_log_freq"],
+            num_images_log=config["num_images_log"],
+            current_epoch=current_epoch,
+            alpha=float(config["alpha"]),
+            use_wandb=config["use_wandb"],
+            eval_fraction=config["eval_fraction"],
+            eval_freq=config["eval_freq"],
+        )
+    elif config["model_type"] == "sati":
         train_eval_loop_nomad(
             train_model=config["train"],
             model=model,
