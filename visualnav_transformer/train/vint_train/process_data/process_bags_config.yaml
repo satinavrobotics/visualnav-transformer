@@ -6,11 +6,39 @@ tartan_drive:
   odom_process_func: "nav_to_xy_yaw"
 
 scand:
-  odomtopics: ["/odom", "/jackal_velocity_controller/odom"]
-  imtopics: ["/image_raw/compressed", "/camera/rgb/image_raw/compressed"]
+  odomtopics: ["/odom", /jackal_velocity_controller/odom]
+  imtopics: [
+    "/spot/camera/frontleft/image/compressed",
+    "/spot/camera/frontright/image/compressed",
+    "/left/image_color/compressed",
+    "/image_raw/compressed",
+    "/camera/depth/image_raw/compressed",
+    "/image_raw/compressed",
+    "/camera/rgb/image_raw/compressed",
+    "/spot/camera/left/image/compressed",
+    "/spot/camera/right/image/compressed",
+    "/spot/camera/back/image/compressed"
+  ]
   ang_offset: 0.0
   img_process_func: "process_scand_img"
   odom_process_func: "nav_to_xy_yaw"
+  pointcloud_topics: ["/velodyne_points"]
+  imu_topics: ["/imu/data_raw"]
+  gps_topics: ["/navsat/fix"]
+  lidar_topics: ["/scan", "/velodyne_2dscan"]
+  joint_states_topics: ["/joint_states"]
+  joystick_topics: ["/joystick", "/bluetooth_teleop/joy"]
+  cmd_vel_topics: ["/navigation/cmd_vel"]
+  tf_topics: ["/tf", "/tf_static"]
+  gnss_extra_topics: ["/navsat/time_reference", "/navsat/nmea_sentence", "/navsat/vel"]
+  camera_info_topics: [
+    "/spot/camera/back/camera_info",
+    "/spot/camera/frontleft/camera_info",
+    "/spot/camera/frontright/camera_info",
+    "/spot/camera/left/camera_info",
+    "/spot/camera/right/camera_info"
+  ]
+
 
 locobot:
   odomtopics: "/odom"
