@@ -221,37 +221,6 @@ def main(config):
             clip_sample=True,
             prediction_type="epsilon",
         )
-    elif config["model_type"] == "sati":
-        vision_encoder = SatiEncoder(
-            context_size=config["context_size"],
-            obs_encoder=config["obs_encoder"],
-            obs_encoding_size=config["obs_encoding_size"],
-            patch_size=config["patch_size"],
-            mha_num_attention_heads=config["mha_num_attention_heads"],
-            mha_num_attention_layers=config["mha_num_attention_layers"]
-        )
-        
-        noise_pred_net = ConditionalUnet1D(
-            input_dim=2,
-            global_cond_dim=config["encoding_size"],
-            down_dims=config["down_dims"],
-            cond_predict_scale=config["cond_predict_scale"],
-        )
-        
-        dist_pred_network = DenseNetwork(embedding_dim=config["encoding_size"])
-
-        model = Sati(
-            vision_encoder=vision_encoder,
-            noise_pred_net=noise_pred_net,
-            dist_pred_net=dist_pred_network,
-        )
-
-        noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config["num_diffusion_iters"],
-            beta_schedule="squaredcos_cap_v2",
-            clip_sample=True,
-            prediction_type="epsilon",
-        )
     else:
         raise ValueError(f"Model {config['model']} not supported")
 

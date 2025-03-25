@@ -9,6 +9,7 @@ import torch
 import tqdm
 import yaml
 from torch.utils.data import Dataset
+import json
 
 from visualnav_transformer.train.vint_train.data.data_utils import (
     calculate_sin_cos,
@@ -34,12 +35,9 @@ class ViNT_Dataset(Dataset):
         len_traj_pred: int,
         learn_angle: bool,
         context_size: int,
-        context_type: str = "temporal",
         end_slack: int = 0,
         goals_per_obs: int = 1,
         normalize: bool = True,
-        obs_type: str = "image",
-        goal_type: str = "image",
     ):
         """
         Main ViNT dataset class
@@ -55,22 +53,18 @@ class ViNT_Dataset(Dataset):
             len_traj_pred (int): Length of trajectory of waypoints to predict if this is an action dataset
             learn_angle (bool): Whether to learn the yaw of the robot at each predicted waypoint if this is an action dataset
             context_size (int): Number of previous observations to use as context
-            context_type (str): Whether to use temporal, randomized, or randomized temporal context
             end_slack (int): Number of timesteps to ignore at the end of the trajectory
             goals_per_obs (int): Number of goals to sample per observation
             normalize (bool): Whether to normalize the distances or actions
-            goal_type (str): What data type to use for the goal. The only one supported is "image" for now.
         """
         self.data_folder = data_folder
         self.data_split_folder = data_split_folder
         self.dataset_name = dataset_name
 
-        traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
+        traj_names_file = os.path.join(data_split_folder, "traj_metadata.json")
         with open(traj_names_file, "r") as f:
-            file_lines = f.read()
-            self.traj_names = file_lines.split("\n")
-        if "" in self.traj_names:
-            self.traj_names.remove("")
+            json_data = json.load(f)
+            self.traj_names = [traj["path"] for traj in json_data["trajectories"]]
 
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing
@@ -89,18 +83,10 @@ class ViNT_Dataset(Dataset):
         self.max_action_distance = max_action_distance
 
         self.context_size = context_size
-        assert context_type in {
-            "temporal",
-            "randomized",
-            "randomized_temporal",
-        }, "context_type must be one of temporal, randomized, randomized_temporal"
-        self.context_type = context_type
         self.end_slack = end_slack
         self.goals_per_obs = goals_per_obs
         self.normalize = normalize
-        self.obs_type = obs_type
-        self.goal_type = goal_type
-
+        
         # load data/data_config.yaml
         with open(
             os.path.join(os.path.dirname(__file__), "data_config.yaml"), "r"
@@ -218,7 +204,7 @@ class ViNT_Dataset(Dataset):
         """
         index_to_data_path = os.path.join(
             self.data_split_folder,
-            f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_{self.context_type}_n{self.context_size}_slack_{self.end_slack}.pkl",
+            f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_n{self.context_size}_slack_{self.end_slack}.pkl",
         )
         try:
             # load the index_to_data if it already exists (to save time)
@@ -303,9 +289,9 @@ class ViNT_Dataset(Dataset):
             return self.trajectory_cache[trajectory_name]
         else:
             with open(
-                os.path.join(self.data_folder, trajectory_name, "traj_data.pkl"), "rb"
+                os.path.join(self.data_folder, trajectory_name, "traj_data.json"), "rb"
             ) as f:
-                traj_data = pickle.load(f)
+                traj_data = json.load(f)
             self.trajectory_cache[trajectory_name] = traj_data
             return traj_data
 
@@ -331,18 +317,15 @@ class ViNT_Dataset(Dataset):
 
         # Load images
         context = []
-        if self.context_type == "temporal":
-            # sample the last self.context_size times from interval [0, curr_time)
-            context_times = list(
-                range(
-                    curr_time + -self.context_size * self.waypoint_spacing,
-                    curr_time + 1,
-                    self.waypoint_spacing,
-                )
+        # sample the last self.context_size times from interval [0, curr_time)
+        context_times = list(
+            range(
+                curr_time + -self.context_size * self.waypoint_spacing,
+                curr_time + 1,
+                self.waypoint_spacing,
             )
-            context = [(f_curr, t) for t in context_times]
-        else:
-            raise ValueError(f"Invalid context type {self.context_type}")
+        )
+        context = [(f_curr, t) for t in context_times]
 
         obs_image = torch.cat([self._load_image(f, t) for f, t in context])
 
