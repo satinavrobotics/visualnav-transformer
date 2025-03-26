@@ -27,10 +27,8 @@ from visualnav_transformer.train.vint_train.models.nomad.nomad import (
 )
 from visualnav_transformer.train.vint_train.models.sati.sati import Sati
 from visualnav_transformer.train.vint_train.models.sati.sati_encoder import SatiEncoder
-from visualnav_transformer.train.vint_train.models.nomad.nomad_vint import (
-    NoMaD_ViNT,
-    replace_bn_with_gn,
-)
+from visualnav_transformer.train.vint_train.models.nomad.nomad_vint import NoMaD_ViNT
+from visualnav_transformer.train.vint_train.models.nomad.utils import replace_bn_with_gn
 from visualnav_transformer.train.vint_train.models.vint.vint import ViNT
 from visualnav_transformer.train.vint_train.models.vint.vit import ViT
 from visualnav_transformer.train.vint_train.training.train_eval_loop import (
@@ -120,11 +118,9 @@ def main(config):
             len_traj_pred=config["len_traj_pred"],
             learn_angle=config["learn_angle"],
             context_size=config["context_size"],
-            context_type=config["context_type"],
             end_slack=data_config["end_slack"],
             goals_per_obs=data_config["goals_per_obs"],
-            normalize=config["normalize"],
-            goal_type=config["goal_type"],
+            normalize=config["normalize"]
         )
         if data_split_type == "train":
             train_dataset.append(dataset)

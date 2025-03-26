@@ -8,7 +8,7 @@ from visualnav_transformer.train.vint_train.models.vint.self_attention import (
     PositionalEncoding,
 )
 from visualnav_transformer.train.vint_train.models.nomad.ft_extractor import (
-    EfficientNetExtractor, DINOV2Extractor
+    EfficientNetExtractor, DiNOV2Extractor
 )
 
 
@@ -34,8 +34,8 @@ class NoMaD_ViNT(nn.Module):
             self.obs_encoder = EfficientNetExtractor(obs_encoder, in_channels=3)
             self.goal_encoder = EfficientNetExtractor("efficientnet-b0", in_channels=6)
         elif obs_encoder.split("-")[0] == "dinov2":
-            self.obs_encoder = DINOV2Extractor(obs_encoder)
-            self.goal_encoder = DINOV2Extractor(obs_encoder)
+            self.obs_encoder = DiNOV2Extractor(obs_encoder)
+            self.goal_encoder = DiNOV2Extractor(obs_encoder)
         self.num_obs_features = self.obs_encoder.num_out_features()
         self.num_goal_features = self.goal_encoder.num_out_features()
 
