@@ -39,6 +39,14 @@ from visualnav_transformer.train.vint_train.training.train_eval_loop import (
     train_eval_loop_nomad,
 )
 
+from visualnav_transformer import ROOT_TRAIN
+with open(
+        # CHANGE
+    # os.path.join(os.path.dirname(__file__), "../data/data_config.yaml"), "r"
+    os.path.join(ROOT_TRAIN, "vint_train/data/data_config.yaml"), "r"
+) as f:
+    data_configs = yaml.safe_load(f)
+
 
 def main(config):
     assert config["distance"]["min_dist_cat"] < config["distance"]["max_dist_cat"]
@@ -83,8 +91,10 @@ def main(config):
     if "clip_goals" not in config:
         config["clip_goals"] = False
 
-    for dataset_name in config["datasets"]:
+    for dataset_index, dataset_name in enumerate(data_configs["datasets"]):    
         data_config = config["datasets"][dataset_name]
+        if not data_config["available"]:
+            continue
         if "negative_mining" not in data_config:
             data_config["negative_mining"] = True
         if "goals_per_obs" not in data_config:
@@ -94,35 +104,35 @@ def main(config):
         if "waypoint_spacing" not in data_config:
             data_config["waypoint_spacing"] = 1
 
-        for data_split_type in ["train", "test"]:
-            if data_split_type in data_config:
-                dataset = ViNT_Dataset(
-                    data_folder=data_config["data_folder"],
-                    data_split_folder=data_config[data_split_type],
-                    dataset_name=dataset_name,
-                    image_size=config["image_size"],
-                    waypoint_spacing=data_config["waypoint_spacing"],
-                    min_dist_cat=config["distance"]["min_dist_cat"],
-                    max_dist_cat=config["distance"]["max_dist_cat"],
-                    min_action_distance=config["action"]["min_dist_cat"],
-                    max_action_distance=config["action"]["max_dist_cat"],
-                    negative_mining=data_config["negative_mining"],
-                    len_traj_pred=config["len_traj_pred"],
-                    learn_angle=config["learn_angle"],
-                    context_size=config["context_size"],
-                    context_type=config["context_type"],
-                    end_slack=data_config["end_slack"],
-                    goals_per_obs=data_config["goals_per_obs"],
-                    normalize=config["normalize"],
-                    goal_type=config["goal_type"],
-                )
-                if data_split_type == "train":
-                    train_dataset.append(dataset)
-                else:
-                    dataset_type = f"{dataset_name}_{data_split_type}"
-                    if dataset_type not in test_dataloaders:
-                        test_dataloaders[dataset_type] = {}
-                    test_dataloaders[dataset_type] = dataset
+        dataset = ViNT_Dataset(
+            data_folder=data_config["data_folder"],
+            split="train",
+            split_ratio=data_config["split"]
+            dataset_name=dataset_name,
+            dataset_index=dataset_index
+            image_size=config["image_size"],
+            waypoint_spacing=data_config["waypoint_spacing"],
+            min_dist_cat=config["distance"]["min_dist_cat"],
+            max_dist_cat=config["distance"]["max_dist_cat"],
+            min_action_distance=config["action"]["min_dist_cat"],
+            max_action_distance=config["action"]["max_dist_cat"],
+            negative_mining=data_config["negative_mining"],
+            len_traj_pred=config["len_traj_pred"],
+            learn_angle=config["learn_angle"],
+            context_size=config["context_size"],
+            context_type=config["context_type"],
+            end_slack=data_config["end_slack"],
+            goals_per_obs=data_config["goals_per_obs"],
+            normalize=config["normalize"],
+            goal_type=config["goal_type"],
+        )
+        if data_split_type == "train":
+            train_dataset.append(dataset)
+        else:
+            dataset_type = f"{dataset_name}_{data_split_type}"
+            if dataset_type not in test_dataloaders:
+                test_dataloaders[dataset_type] = {}
+            test_dataloaders[dataset_type] = dataset
 
     # combine all the datasets from different robots
     train_dataset = ConcatDataset(train_dataset)

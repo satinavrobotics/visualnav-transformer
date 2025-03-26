@@ -5,59 +5,113 @@ action_stats:
   min: [-2.5, -4] # [min_dx, min_dy]
   max: [5, 4] # [max_dx, max_dy]
 
+
 # data specific params
-recon:
-  metric_waypoint_spacing: 0.25 # average spacing between waypoints (meters)
+datasets:
+  recon:
+    availble: True
+    split: 1.0
+    data_folder: /home/<username>/vint_dataset/recon
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1 # how many goals are sampled per observation
+    negative_mining: True # negative mining from the ViNG paper (Shah et al.)
+    metric_waypoint_spacing: 0.25 # average spacing between waypoints (meters)
 
-  # OPTIONAL (FOR VISUALIZATION ONLY)
-  camera_metrics: # https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
-    camera_height: 0.95 # meters
-    camera_x_offset: 0.45 # distance between the center of the robot and the forward facing camera
-    camera_matrix:
-      fx: 272.547000
-      fy: 266.358000
-      cx: 320.000000
-      cy: 220.000000
-    dist_coeffs:
-      k1: -0.038483
-      k2: -0.010456
-      p1: 0.003930
-      p2: -0.001007
-      k3: 0.0
+    # OPTIONAL (FOR VISUALIZATION ONLY)
+    camera_metrics: # https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
+      camera_height: 0.95 # meters
+      camera_x_offset: 0.45 # distance between the center of the robot and the forward facing camera
+      camera_matrix:
+        fx: 272.547000
+        fy: 266.358000
+        cx: 320.000000
+        cy: 220.000000
+      dist_coeffs:
+        k1: -0.038483
+        k2: -0.010456
+        p1: 0.003930
+        p2: -0.001007
+        k3: 0.0
 
-scand:
-  metric_waypoint_spacing: 0.38
+  scand:
+    available: True
+    split: 1.0
+    data_folder: /home/<username>/vint_dataset/scand/
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.38
 
-tartan_drive:
-  metric_waypoint_spacing: 0.72
+  tartan_drive:
+    available: False
+    split: 1.0
+    data_folder: /home/<username>/vint_dataset/tartan_drive/
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.72
 
-go_stanford:
-  metric_waypoint_spacing: 0.12
+  go_stanford:
+    split: 1.0
+    available: True
+    data_folder: /home/<username>/vint_dataset/go_stanford_cropped # datasets/stanford_go_new
+    end_slack: 0
+    goals_per_obs: 2 # increase dataset size
+    negative_mining: True
+    metric_waypoint_spacing: 0.12
 
-# private datasets:
-cory_hall:
-  metric_waypoint_spacing: 0.06
+  # private datasets:
+  cory_hall:
+    split: 1.0
+    available: False
+    data_folder: /home/<username>/vint_dataset/cory_hall/
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.06
 
-seattle:
-  metric_waypoint_spacing: 0.35
+  seattle:
+    available: False
+    split: 1.0
+    metric_waypoint_spacing: 0.35
 
-racer:
-  metric_waypoint_spacing: 0.38
+  racer:
+    available: False
+    split: 1.0
+    data_folder: /home/<username>/vint_dataset/seattle/
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.38
 
-carla_intvns:
-  metric_waypoint_spacing: 1.39
+  carla_intvns:
+    available: False
+    split: 1.0
+    metric_waypoint_spacing: 1.39
 
-carla_cil:
-  metric_waypoint_spacing: 1.27
+  carla_cil:
+    available: False
+    split: 1.0
+    metric_waypoint_spacing: 1.27
 
-carla_intvns:
-  metric_waypoint_spacing: 1.39
+  carla_intvns:
+    available: False
+    split: 1.0
+    metric_waypoint_spacing: 1.39
 
-carla:
-  metric_waypoint_spacing: 1.59
-  image_path_func: get_image_path
+  carla:
+    available: False
+    split: 1.0
+    metric_waypoint_spacing: 1.59
+    image_path_func: get_image_path
 
-sacson:
-  metric_waypoint_spacing: 0.255
+  huron:
+    available: True
+    split: 1.0
+    data_folder: /home/<username>/vint_dataset/sacson/
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.255
 
-# add your own dataset params here:
+  # add your own dataset params here:

@@ -23,10 +23,13 @@ class ViNT_Dataset(Dataset):
     def __init__(
         self,
         data_folder: str,
-        data_split_folder: str,
+        split: str,
+        split_ratio: float,
         dataset_name: str,
+        dataset_index: int,
         image_size: Tuple[int, int],
         waypoint_spacing: int,
+        metric_waypoint_spacing: float,
         min_dist_cat: int,
         max_dist_cat: int,
         min_action_distance: int,
@@ -44,7 +47,6 @@ class ViNT_Dataset(Dataset):
 
         Args:
             data_folder (string): Directory with all the image data
-            data_split_folder (string): Directory with filepaths.txt, a list of all trajectory names in the dataset split that are each seperated by a newline
             dataset_name (string): Name of the dataset [recon, go_stanford, scand, tartandrive, etc.]
             waypoint_spacing (int): Spacing between waypoints
             min_dist_cat (int): Minimum distance category to use
@@ -58,16 +60,21 @@ class ViNT_Dataset(Dataset):
             normalize (bool): Whether to normalize the distances or actions
         """
         self.data_folder = data_folder
-        self.data_split_folder = data_split_folder
+        self.split = split
+        self.split_ratio = split_ratio
         self.dataset_name = dataset_name
 
-        traj_names_file = os.path.join(data_split_folder, "traj_metadata.json")
+        traj_names_file = os.path.join(self.data_folder, "metadata.json")
         with open(traj_names_file, "r") as f:
             json_data = json.load(f)
-            self.traj_names = [traj["path"] for traj in json_data["trajectories"]]
+        trajectories = json_data["trajectories"]
+        split_point = int(len(trajectories) * split_ratio)
+        trajectories = trajectories[:split_point] if split == "train" else trajectories[split_point:]
+        self.traj_names = [os.path.join(self.data_folder, traj["path"]) for traj in trajectories]
 
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing
+        self.metric_waypoint_spacing = metric_waypoint_spacing
         self.distance_categories = list(
             range(min_dist_cat, max_dist_cat + 1, self.waypoint_spacing)
         )
@@ -86,20 +93,7 @@ class ViNT_Dataset(Dataset):
         self.end_slack = end_slack
         self.goals_per_obs = goals_per_obs
         self.normalize = normalize
-        
-        # load data/data_config.yaml
-        with open(
-            os.path.join(os.path.dirname(__file__), "data_config.yaml"), "r"
-        ) as f:
-            all_data_config = yaml.safe_load(f)
-        assert (
-            self.dataset_name in all_data_config
-        ), f"Dataset {self.dataset_name} not found in data_config.yaml"
-        dataset_names = list(all_data_config.keys())
-        dataset_names.sort()
-        # use this index to retrieve the dataset name from the data_config.yaml
-        self.dataset_index = dataset_names.index(self.dataset_name)
-        self.data_config = all_data_config[self.dataset_name]
+ 
         self.trajectory_cache = {}
         self._load_index()
         self._build_caches()
@@ -123,8 +117,8 @@ class ViNT_Dataset(Dataset):
         Build a cache of images for faster loading using LMDB
         """
         cache_filename = os.path.join(
-            self.data_split_folder,
-            f"dataset_{self.dataset_name}.lmdb",
+            self.data_folder,
+            f"dataset_{self.dataset_name}_{self.split}_{self.split_ratio}.lmdb",
         )
 
         # Load all the trajectories into memory. These should already be loaded, but just in case.
@@ -203,7 +197,7 @@ class ViNT_Dataset(Dataset):
         Generates a list of tuples of (obs_traj_name, goal_traj_name, obs_time, goal_time) for each observation in the dataset
         """
         index_to_data_path = os.path.join(
-            self.data_split_folder,
+            self.data_folder,
             f"dataset_dist_{self.min_dist_cat}_to_{self.max_dist_cat}_context_n{self.context_size}_slack_{self.end_slack}.pkl",
         )
         try:
@@ -271,10 +265,10 @@ class ViNT_Dataset(Dataset):
 
         if self.normalize:
             actions[:, :2] /= (
-                self.data_config["metric_waypoint_spacing"] * self.waypoint_spacing
+                self.metric_waypoint_spacing * self.waypoint_spacing
             )
             goal_pos /= (
-                self.data_config["metric_waypoint_spacing"] * self.waypoint_spacing
+                self.metric_waypoint_spacing * self.waypoint_spacing
             )
 
         assert actions.shape == (

@@ -22,7 +22,7 @@ with open(
     # os.path.join(os.path.dirname(__file__), "../data/data_config.yaml"), "r"
     os.path.join(ROOT_TRAIN, "vint_train/data/data_config.yaml"), "r"
 ) as f:
-    data_config = yaml.safe_load(f)
+    data_config = yaml.safe_load(f)["datasets"]
 
 
 def visualize_traj_pred(
