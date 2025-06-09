@@ -1,1 +1,19 @@
-visualnav-transformer/visualnav_transformer/__pycache__
+# Python bytecode caches
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# Visualnav-transformer caches
+visualnav-transformer/visualnav_transformer/__pycache__/
+visualnav-transformer/visualnav_transformer/train/__pycache__/
+visualnav-transformer/visualnav_transformer/train/vint_train/__pycache__/
+
+# Token or zip artifacts
+client_configuration_token_*.tok.zip
+
+# Jupyter checkpoints, etc.
+.ipynb_checkpoints/
+
+# OS or editor artifacts
+*.swp
+*~
