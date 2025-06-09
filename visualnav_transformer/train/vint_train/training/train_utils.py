@@ -1,5 +1,6 @@
 import itertools
 import os
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,13 +9,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 import tqdm
-import wandb
+import mlflow
 import yaml
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import gc  # 🧹 Added for RAM/memory cleanup
 
 from visualnav_transformer.train.vint_train.data.data_utils import (
     VISUALIZATION_IMAGE_SIZE,
@@ -44,6 +46,9 @@ with open(
 ACTION_STATS = {}
 for key in data_config["action_stats"]:
     ACTION_STATS[key] = np.array(data_config["action_stats"][key])
+
+
+
 
 
 # Train utils for ViNT and GNM
@@ -131,16 +136,16 @@ def _log_data(
     dist_label,
     goal_pos,
     dataset_index,
-    use_wandb,
+    use_mlflow,
     mode,
     use_latest,
-    wandb_log_freq=1,
+    mlflow_log_freq=1,
     print_log_freq=1,
     image_log_freq=1,
-    wandb_increment_step=True,
+    mlflow_increment_step=True,
 ):
     """
-    Log data to wandb and print to console.
+    Log data to mlflow and print to console.
     """
     data_log = {}
     for key, logger in loggers.items():
@@ -155,8 +160,11 @@ def _log_data(
             if i % print_log_freq == 0 and print_log_freq != 0:
                 print(f"(epoch {epoch}) {logger.full_name()} {logger.average()}")
 
-    if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
-        wandb.log(data_log, commit=wandb_increment_step)
+    if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
+        for k, v in data_log.items():
+            # Use epoch*num_batches + i to ensure step increases continuously across epochs
+            global_step = epoch * num_batches + i
+            mlflow.log_metric(k, v, step=global_step if mlflow_increment_step else None)
 
     if image_log_freq != 0 and i % image_log_freq == 0:
         visualize_dist_pred(
@@ -168,22 +176,32 @@ def _log_data(
             project_folder,
             epoch,
             num_images_log,
-            use_wandb=use_wandb,
+            use_mlflow=use_mlflow,
         )
-        visualize_traj_pred(
-            to_numpy(obs_image),
-            to_numpy(goal_image),
-            to_numpy(dataset_index),
-            to_numpy(goal_pos),
-            to_numpy(action_pred),
-            to_numpy(action_label),
-            mode,
-            normalized,
-            project_folder,
-            epoch,
-            num_images_log,
-            use_wandb=use_wandb,
-        )
+
+        try:
+            visualize_traj_pred(
+                to_numpy(obs_image),
+                to_numpy(goal_image),
+                to_numpy(dataset_index),
+                to_numpy(goal_pos),
+                to_numpy(action_pred),
+                to_numpy(action_label),
+                mode,
+                normalized,
+                project_folder,
+                epoch,
+                num_images_log,
+                use_mlflow=use_mlflow,
+            )
+        except Exception as e:
+            print(f"\n[ERROR] Exception in visualize_traj_pred: {e}")
+            print(f"  obs_image shape: {to_numpy(obs_image).shape}")
+            print(f"  goal_image shape: {to_numpy(goal_image).shape}")
+            print(f"  dataset_index shape: {to_numpy(dataset_index).shape}")
+            print(f"  goal_pos shape: {to_numpy(goal_pos).shape}")
+            print(f"  action_pred shape: {to_numpy(action_pred).shape}")
+            print(f"  action_label shape: {to_numpy(action_label).shape}")
 
 
 def train(
@@ -198,10 +216,10 @@ def train(
     alpha: float = 0.5,
     learn_angle: bool = True,
     print_log_freq: int = 100,
-    wandb_log_freq: int = 10,
+    mlflow_log_freq: int = 10,
     image_log_freq: int = 1000,
     num_images_log: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
     use_tqdm: bool = True,
 ):
     """
@@ -220,7 +238,7 @@ def train(
         print_log_freq: how often to print loss
         image_log_freq: how often to log images
         num_images_log: number of images to log
-        use_wandb: whether to use wandb
+        use_mlflow: whether to use mlflow
         use_tqdm: whether to use tqdm
     """
     model.train()
@@ -321,10 +339,10 @@ def train(
             dist_label=dist_label,
             goal_pos=goal_pos,
             dataset_index=dataset_index,
-            wandb_log_freq=wandb_log_freq,
+            mlflow_log_freq=mlflow_log_freq,
             print_log_freq=print_log_freq,
             image_log_freq=image_log_freq,
-            use_wandb=use_wandb,
+            use_mlflow=use_mlflow,
             mode="train",
             use_latest=True,
         )
@@ -342,7 +360,7 @@ def evaluate(
     alpha: float = 0.5,
     learn_angle: bool = True,
     num_images_log: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
     eval_fraction: float = 1.0,
     use_tqdm: bool = True,
 ):
@@ -360,7 +378,7 @@ def evaluate(
         alpha (float): weight for action loss
         learn_angle (bool): whether to learn the angle of the action
         num_images_log (int): number of images to log
-        use_wandb (bool): whether to use wandb for logging
+        use_mlflow (bool): whether to use mlflow for logging
         eval_fraction (float): fraction of data to use for evaluation
         use_tqdm (bool): whether to use tqdm for logging
     """
@@ -442,7 +460,7 @@ def evaluate(
                     logger = loggers[key]
                     logger.log_data(value.item())
 
-    # Log data to wandb/console, with visualizations selected from the last batch
+    # Log data to mlflow/console, with visualizations selected from the last batch
     _log_data(
         i=i,
         epoch=epoch,
@@ -459,10 +477,10 @@ def evaluate(
         dist_pred=dist_pred,
         dist_label=dist_label,
         dataset_index=dataset_index,
-        use_wandb=use_wandb,
+        use_mlflow=use_mlflow,
         mode=eval_type,
         use_latest=False,
-        wandb_increment_step=False,
+        mlflow_increment_step=False,
     )
 
     return (
@@ -580,10 +598,11 @@ def train_nomad(
     epoch: int,
     alpha: float = 1e-4,
     print_log_freq: int = 100,
-    wandb_log_freq: int = 10,
+    mlflow_log_freq: int = 10,
     image_log_freq: int = 1000,
     num_images_log: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
+    viz_dataloader: Optional[DataLoader] = None,  # Add visualization dataloader parameter
 ):
     """
     Train the model for one epoch.
@@ -602,7 +621,7 @@ def train_nomad(
         print_log_freq: how often to print loss
         image_log_freq: how often to log images
         num_images_log: number of images to log
-        use_wandb: whether to use wandb
+        use_mlflow: whether to use mlflow
     """
     goal_mask_prob = torch.clip(torch.tensor(goal_mask_prob), 0, 1)
     model.train()
@@ -636,28 +655,54 @@ def train_nomad(
         "gc_action_waypts_cos_sim": gc_action_waypts_cos_sim_logger,
         "gc_multi_action_waypts_cos_sim": gc_multi_action_waypts_cos_sim_logger,
     }
+    # Check if using pre-built DINO features
+    # For ConcatDataset, we need to check the first dataset
+    if hasattr(dataloader.dataset, 'datasets'):
+        # This is a ConcatDataset
+        first_dataset = dataloader.dataset.datasets[0]
+        using_prebuilt_dino = hasattr(first_dataset, 'prebuilt_dino') and first_dataset.prebuilt_dino
+    else:
+        # This is a regular dataset
+        using_prebuilt_dino = hasattr(dataloader.dataset, 'prebuilt_dino') and dataloader.dataset.prebuilt_dino
+
+    if using_prebuilt_dino:
+        print("Using pre-built DINO features for training")
+
     with tqdm.tqdm(dataloader, desc="Train Batch", leave=False) as tepoch:
         for i, data in enumerate(tepoch):
             (
-                obs_image,
-                goal_image,
-                actions,
-                distance,
-                goal_pos,
-                dataset_idx,
-                action_mask,
+                obs_image, # obs_image shape depends on whether using pre-built DINO features, else: goal_image shape: torch.Size([128, 3, 240, 320]),
+                goal_image, # goal_image shape depends on whether using pre-built DINO features, else: goal_image shape: torch.Size([128, 3, 240, 320]),
+                actions, # actions shape: torch.Size([128, 8, 2]),
+                distance, # distance shape: torch.Size([128]),
+                goal_pos, # goal_pos shape: torch.Size([128, 2]),
+                dataset_idx, # dataset_idx shape: torch.Size([128]),
+                action_mask, # action_mask shape: torch.Size([128])
             ) = data
 
-            obs_images = torch.split(obs_image, 3, dim=1)
-            batch_viz_obs_images = TF.resize(
-                obs_images[-1], VISUALIZATION_IMAGE_SIZE[::-1]
-            )
-            batch_viz_goal_images = TF.resize(
-                goal_image, VISUALIZATION_IMAGE_SIZE[::-1]
-            )
-            batch_obs_images = [transform(obs) for obs in obs_images]
-            batch_obs_images = torch.cat(batch_obs_images, dim=1).to(device)
-            batch_goal_images = transform(goal_image).to(device)
+            # Handle differently based on whether using pre-built DINO features
+            if using_prebuilt_dino:
+                # With pre-built DINO features, obs_image and goal_image are already feature vectors
+                # No need to split, resize, or transform
+                batch_obs_images = obs_image.to(device)  # These are already DINO features
+                batch_goal_images = goal_image.to(device)  # These are already DINO features
+
+                # Set visualization images to None, will be fetched during visualization if needed
+                batch_viz_obs_images = None
+                batch_viz_goal_images = None
+            else:
+                # Regular processing for raw images
+                obs_images = torch.split(obs_image, 3, dim=1)
+                batch_viz_obs_images = TF.resize(
+                    obs_images[-1], VISUALIZATION_IMAGE_SIZE[::-1]
+                )
+                batch_viz_goal_images = TF.resize(
+                    goal_image, VISUALIZATION_IMAGE_SIZE[::-1]
+                )
+                batch_obs_images = [transform(obs) for obs in obs_images]
+                batch_obs_images = torch.cat(batch_obs_images, dim=1).to(device)
+                batch_goal_images = transform(goal_image).to(device)
+
             action_mask = action_mask.to(device)
 
             B = actions.shape[0]
@@ -735,9 +780,11 @@ def train_nomad(
             # Logging
             loss_cpu = loss.item()
             tepoch.set_postfix(loss=loss_cpu)
-            wandb.log({"total_loss": loss_cpu})
-            wandb.log({"dist_loss": dist_loss.item()})
-            wandb.log({"diffusion_loss": diffusion_loss.item()})
+            # Use epoch*num_batches + i to ensure step increases continuously across epochs
+            global_step = epoch * num_batches + i
+            mlflow.log_metric("total_loss", loss_cpu, step=global_step)
+            mlflow.log_metric("dist_loss", dist_loss.item(), step=global_step)
+            mlflow.log_metric("diffusion_loss", diffusion_loss.item(), step=global_step)
 
             if i % print_log_freq == 0:
                 losses = _compute_losses_nomad(
@@ -764,28 +811,125 @@ def train_nomad(
                             f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
                         )
 
-                if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
-                    wandb.log(data_log, commit=True)
+                if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
+                    for k, v in data_log.items():
+                        # Use epoch*num_batches + i to ensure step increases continuously across epochs
+                        global_step = epoch * num_batches + i
+                        mlflow.log_metric(k, v, step=global_step)
+
 
             if image_log_freq != 0 and i % image_log_freq == 0:
-                visualize_diffusion_action_distribution(
-                    ema_model.averaged_model,
-                    noise_scheduler,
-                    batch_obs_images,
-                    batch_goal_images,
-                    batch_viz_obs_images,
-                    batch_viz_goal_images,
-                    actions,
-                    distance,
-                    goal_pos,
-                    device,
-                    "train",
-                    project_folder,
-                    epoch,
-                    num_images_log,
-                    30,
-                    use_wandb,
-                )
+                # When using pre-built DINO features, we need to use the visualization dataset
+                if using_prebuilt_dino and viz_dataloader is not None:
+                    try:
+                        # Get visualization batch
+                        viz_batch = next(iter(viz_dataloader))
+
+                        # Unpack the visualization batch
+                        viz_obs_img, viz_goal_img, viz_actions, viz_distance, viz_goal_pos, viz_dataset_idx, viz_action_mask = viz_batch
+
+                        # Move to device
+                        viz_obs_img = viz_obs_img.to(device)
+                        viz_goal_img = viz_goal_img.to(device)
+                        viz_goal_pos = viz_goal_pos.to(device)
+
+                        # Extract visualization images (for display only)
+                        obs_images = torch.split(viz_obs_img, 3, dim=1)
+                        viz_obs_images = obs_images[-1]
+
+                        # Call visualization function with visualization images
+                        visualize_diffusion_action_distribution(
+                            ema_model.averaged_model,
+                            noise_scheduler,
+                            batch_obs_images,
+                            batch_goal_images,
+                            viz_obs_images,  # Use visualization images
+                            viz_goal_img,  # Use visualization images
+                            actions,  # This is batch_action_label
+                            distance,  # This is batch_distance_labels
+                            viz_goal_pos,  # Use visualization goal positions
+                            device,
+                            "train",
+                            project_folder,
+                            epoch,
+                            min(num_images_log, len(viz_obs_images)),
+                            30,
+                            use_mlflow,
+                            # Additional parameters needed for _log_data
+                            i=i,
+                            num_batches=num_batches,
+                            loggers=loggers,
+                            dataset_index=viz_dataset_idx,
+                            mlflow_log_freq=mlflow_log_freq,
+                            print_log_freq=print_log_freq,
+                            image_log_freq=image_log_freq,
+                            use_latest=True,
+                        )
+                    except Exception as e:
+                        print(f"Error during visualization: {e}")
+                        # Continue training even if visualization fails
+                else:
+                    # Original visualization code
+                    visualize_diffusion_action_distribution(
+                        ema_model.averaged_model,
+                        noise_scheduler,
+                        batch_obs_images,
+                        batch_goal_images,
+                        batch_viz_obs_images,
+                        batch_viz_goal_images,
+                        actions,  # This is batch_action_label
+                        distance,  # This is batch_distance_labels
+                        goal_pos,
+                        device,
+                        "train",
+                        project_folder,
+                        epoch,
+                        num_images_log,
+                        30,
+                        use_mlflow,
+                        # Additional parameters needed for _log_data
+                        i=i,
+                        num_batches=num_batches,
+                        loggers=loggers,
+                        dataset_index=dataset_idx,
+                        mlflow_log_freq=mlflow_log_freq,
+                        print_log_freq=print_log_freq,
+                        image_log_freq=image_log_freq,
+                        use_latest=True,
+                    )
+
+
+             # === 🧹 MEMORY CLEANUP AFTER BATCH ===
+            # Create a list of variables to delete
+            vars_to_delete = [
+                obs_image, goal_image, actions, distance, goal_pos, dataset_idx,
+                batch_obs_images, batch_goal_images,
+                obsgoal_cond, dist_pred, noise, timesteps, noisy_action,
+                noise_pred, naction, deltas, ndeltas
+            ]
+
+            # Add optional variables if they exist
+            if not using_prebuilt_dino:
+                vars_to_delete.append(obs_images)
+
+            if batch_viz_obs_images is not None:
+                vars_to_delete.append(batch_viz_obs_images)
+
+            if batch_viz_goal_images is not None:
+                vars_to_delete.append(batch_viz_goal_images)
+
+            # Delete all variables
+            for var in vars_to_delete:
+                del var
+
+            # More aggressive memory cleanup
+            torch.cuda.empty_cache()  # 🧹 clear cached GPU memory
+            gc.collect()              # 🧹 run Python garbage collector
+
+            # Add a small sleep to allow memory to be properly freed
+            if i % 10 == 0:  # Every 10 batches, do a more thorough cleanup
+                import time
+                time.sleep(0.1)  # Small sleep to allow memory to be freed
 
 
 def evaluate_nomad(
@@ -799,11 +943,12 @@ def evaluate_nomad(
     project_folder: str,
     epoch: int,
     print_log_freq: int = 100,
-    wandb_log_freq: int = 10,
+    mlflow_log_freq: int = 10,
     image_log_freq: int = 1000,
     num_images_log: int = 8,
     eval_fraction: float = 0.25,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
+    viz_dataloader: Optional[DataLoader] = None,  # Add visualization dataloader parameter
 ):
     """
     Evaluate the model on the given evaluation dataset.
@@ -818,12 +963,12 @@ def evaluate_nomad(
         project_folder (string): path to project folder
         epoch (int): current epoch
         print_log_freq (int): how often to print logs
-        wandb_log_freq (int): how often to log to wandb
+        mlflow_log_freq (int): how often to log to mlflow
         image_log_freq (int): how often to log images
         alpha (float): weight for action loss
         num_images_log (int): number of images to log
         eval_fraction (float): fraction of data to use for evaluation
-        use_wandb (bool): whether to use wandb for logging
+        use_mlflow (bool): whether to use mlflow for logging
     """
     goal_mask_prob = torch.clip(torch.tensor(goal_mask_prob), 0, 1)
     ema_model = ema_model.averaged_model
@@ -861,6 +1006,19 @@ def evaluate_nomad(
     }
     num_batches = max(int(num_batches * eval_fraction), 1)
 
+    # Check if using pre-built DINO features
+    # For ConcatDataset, we need to check the first dataset
+    if hasattr(dataloader.dataset, 'datasets'):
+        # This is a ConcatDataset
+        first_dataset = dataloader.dataset.datasets[0]
+        using_prebuilt_dino = hasattr(first_dataset, 'prebuilt_dino') and first_dataset.prebuilt_dino
+    else:
+        # This is a regular dataset
+        using_prebuilt_dino = hasattr(dataloader.dataset, 'prebuilt_dino') and dataloader.dataset.prebuilt_dino
+
+    if using_prebuilt_dino:
+        print(f"Using pre-built DINO features for evaluation ({eval_type})")
+
     with tqdm.tqdm(
         itertools.islice(dataloader, num_batches),
         total=num_batches,
@@ -879,16 +1037,29 @@ def evaluate_nomad(
                 action_mask,
             ) = data
 
-            obs_images = torch.split(obs_image, 3, dim=1)
-            batch_viz_obs_images = TF.resize(
-                obs_images[-1], VISUALIZATION_IMAGE_SIZE[::-1]
-            )
-            batch_viz_goal_images = TF.resize(
-                goal_image, VISUALIZATION_IMAGE_SIZE[::-1]
-            )
-            batch_obs_images = [transform(obs) for obs in obs_images]
-            batch_obs_images = torch.cat(batch_obs_images, dim=1).to(device)
-            batch_goal_images = transform(goal_image).to(device)
+            # Handle differently based on whether using pre-built DINO features
+            if using_prebuilt_dino:
+                # With pre-built DINO features, obs_image and goal_image are already feature vectors
+                # No need to split, resize, or transform
+                batch_obs_images = obs_image.to(device)  # These are already DINO features
+                batch_goal_images = goal_image.to(device)  # These are already DINO features
+
+                # Set visualization images to None, will be fetched during visualization if needed
+                batch_viz_obs_images = None
+                batch_viz_goal_images = None
+            else:
+                # Regular processing for raw images
+                obs_images = torch.split(obs_image, 3, dim=1)
+                batch_viz_obs_images = TF.resize(
+                    obs_images[-1], VISUALIZATION_IMAGE_SIZE[::-1]
+                )
+                batch_viz_goal_images = TF.resize(
+                    goal_image, VISUALIZATION_IMAGE_SIZE[::-1]
+                )
+                batch_obs_images = [transform(obs) for obs in obs_images]
+                batch_obs_images = torch.cat(batch_obs_images, dim=1).to(device)
+                batch_goal_images = transform(goal_image).to(device)
+
             action_mask = action_mask.to(device)
 
             B = actions.shape[0]
@@ -977,9 +1148,11 @@ def evaluate_nomad(
             loss_cpu = rand_mask_loss.item()
             tepoch.set_postfix(loss=loss_cpu)
 
-            wandb.log({"diffusion_eval_loss (random masking)": rand_mask_loss})
-            wandb.log({"diffusion_eval_loss (no masking)": no_mask_loss})
-            wandb.log({"diffusion_eval_loss (goal masking)": goal_mask_loss})
+            # Use epoch*num_batches + i to ensure step increases continuously across epochs
+            global_step = epoch * num_batches + i
+            mlflow.log_metric("diffusion_eval_loss_random_masking", rand_mask_loss.item(), step=global_step)
+            mlflow.log_metric("diffusion_eval_loss_no_masking", no_mask_loss.item(), step=global_step)
+            mlflow.log_metric("diffusion_eval_loss_goal_masking", goal_mask_loss.item(), step=global_step)
 
             if i % print_log_freq == 0 and print_log_freq != 0:
                 losses = _compute_losses_nomad(
@@ -1006,28 +1179,126 @@ def evaluate_nomad(
                             f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
                         )
 
-                if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
-                    wandb.log(data_log, commit=True)
+                if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
+                    for k, v in data_log.items():
+                        # Use epoch*num_batches + i to ensure step increases continuously across epochs
+                        global_step = epoch * num_batches + i
+                        mlflow.log_metric(k, v, step=global_step)
 
             if image_log_freq != 0 and i % image_log_freq == 0:
-                visualize_diffusion_action_distribution(
-                    ema_model,
-                    noise_scheduler,
-                    batch_obs_images,
-                    batch_goal_images,
-                    batch_viz_obs_images,
-                    batch_viz_goal_images,
-                    actions,
-                    distance,
-                    goal_pos,
-                    device,
-                    eval_type,
-                    project_folder,
-                    epoch,
-                    num_images_log,
-                    30,
-                    use_wandb,
-                )
+                # When using pre-built DINO features, we need to use the visualization dataset
+                if using_prebuilt_dino and viz_dataloader is not None:
+                    try:
+                        # Get visualization batch
+                        viz_batch = next(iter(viz_dataloader))
+
+                        # Unpack the visualization batch
+                        viz_obs_img, viz_goal_img, viz_actions, viz_distance, viz_goal_pos, viz_dataset_idx, viz_action_mask = viz_batch
+
+                        # Move to device
+                        viz_obs_img = viz_obs_img.to(device)
+                        viz_goal_img = viz_goal_img.to(device)
+                        viz_goal_pos = viz_goal_pos.to(device)
+
+                        # Extract visualization images (for display only)
+                        obs_images = torch.split(viz_obs_img, 3, dim=1)
+                        viz_obs_images = obs_images[-1]
+
+                        # Call visualization function with visualization images
+                        visualize_diffusion_action_distribution(
+                            ema_model,
+                            noise_scheduler,
+                            batch_obs_images,
+                            batch_goal_images,
+                            viz_obs_images,  # Use visualization images
+                            viz_goal_img,  # Use visualization images
+                            actions,  # This is batch_action_label
+                            distance,  # This is batch_distance_labels
+                            viz_goal_pos,  # Use visualization goal positions
+                            device,
+                            eval_type,
+                            project_folder,
+                            epoch,
+                            min(num_images_log, len(viz_obs_images)),
+                            30,
+                            use_mlflow,
+                            # Additional parameters needed for _log_data
+                            i=i,
+                            num_batches=num_batches,
+                            loggers=loggers,
+                            dataset_index=viz_dataset_idx,
+                            mlflow_log_freq=mlflow_log_freq,
+                            print_log_freq=print_log_freq,
+                            image_log_freq=image_log_freq,
+                            use_latest=False,
+                        )
+                    except Exception as e:
+                        print(f"Error during visualization: {e}")
+                        # Continue evaluation even if visualization fails
+                else:
+                    # Original visualization code
+                    visualize_diffusion_action_distribution(
+                        ema_model,
+                        noise_scheduler,
+                        batch_obs_images,
+                        batch_goal_images,
+                        batch_viz_obs_images,
+                        batch_viz_goal_images,
+                        actions,  # This is batch_action_label
+                        distance,  # This is batch_distance_labels
+                        goal_pos,
+                        device,
+                        eval_type,
+                        project_folder,
+                        epoch,
+                        num_images_log,
+                        30,
+                        use_mlflow,
+                        # Additional parameters needed for _log_data
+                        i=i,
+                        num_batches=num_batches,
+                        loggers=loggers,
+                        dataset_index=dataset_idx,
+                        mlflow_log_freq=mlflow_log_freq,
+                        print_log_freq=print_log_freq,
+                        image_log_freq=image_log_freq,
+                        use_latest=False,
+                    )
+
+                # === 🧹 MEMORY CLEANUP AFTER BATCH ===
+                # Create a list of variables to delete
+                vars_to_delete = [
+                    obs_image, goal_image, actions, distance, goal_pos, dataset_idx,
+                    batch_obs_images, batch_goal_images, rand_goal_mask, goal_mask, no_mask,
+                    rand_mask_cond, obsgoal_cond, goal_mask_cond, noise, timesteps, noisy_actions,
+                    rand_mask_noise_pred, no_mask_noise_pred, goal_mask_noise_pred
+                ]
+
+                # Add optional variables if they exist
+                if not using_prebuilt_dino and 'obs_images' in locals():
+                    vars_to_delete.append(obs_images)
+
+                if 'batch_viz_obs_images' in locals() and batch_viz_obs_images is not None:
+                    vars_to_delete.append(batch_viz_obs_images)
+
+                if 'batch_viz_goal_images' in locals() and batch_viz_goal_images is not None:
+                    vars_to_delete.append(batch_viz_goal_images)
+
+                # Delete all variables
+                for var in vars_to_delete:
+                    try:
+                        del var
+                    except:
+                        pass  # Ignore if variable doesn't exist
+
+                # More aggressive memory cleanup
+                torch.cuda.empty_cache()  # 🧹 clear cached GPU memory
+                gc.collect()              # 🧹 run Python garbage collector
+
+                # Add a small sleep to allow memory to be properly freed
+                if i % 10 == 0:  # Every 10 batches, do a more thorough cleanup
+                    import time
+                    time.sleep(0.1)  # Small sleep to allow memory to be freed
 
 
 # normalize data
@@ -1161,8 +1432,8 @@ def visualize_diffusion_action_distribution(
     batch_goal_images: torch.Tensor,
     batch_viz_obs_images: torch.Tensor,
     batch_viz_goal_images: torch.Tensor,
-    batch_action_label: torch.Tensor,
-    batch_distance_labels: torch.Tensor,
+    batch_action_label: torch.Tensor,  # This is 'actions' from train_nomad
+    batch_distance_labels: torch.Tensor,  # This is 'distance' from train_nomad
     batch_goal_pos: torch.Tensor,
     device: torch.device,
     eval_type: str,
@@ -1170,9 +1441,23 @@ def visualize_diffusion_action_distribution(
     epoch: int,
     num_images_log: int,
     num_samples: int = 30,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
+    # Additional parameters needed for _log_data
+    i: int = 0,
+    num_batches: int = 1,
+    loggers: dict = None,
+    dataset_index: torch.Tensor = None,
+    mlflow_log_freq: int = 1,
+    print_log_freq: int = 1,
+    image_log_freq: int = 1,
+    use_latest: bool = True,
 ):
-    """Plot samples from the exploration model."""
+    """
+    Plot samples from the exploration model.
+
+    Note: When using pre-built DINO features, batch_viz_obs_images and batch_viz_goal_images
+    may be None. In this case, we'll skip the visualization of the images.
+    """
 
     visualize_path = os.path.join(
         project_folder,
@@ -1197,8 +1482,6 @@ def visualize_diffusion_action_distribution(
     batch_goal_images = batch_goal_images[:num_images_log]
     batch_action_label = batch_action_label[:num_images_log]
     batch_goal_pos = batch_goal_pos[:num_images_log]
-
-    wandb_list = []
 
     pred_horizon = batch_action_label.shape[1]
     action_dim = batch_action_label.shape[2]
@@ -1243,11 +1526,11 @@ def visualize_diffusion_action_distribution(
 
     np_distance_labels = to_numpy(batch_distance_labels)
 
-    for i in range(num_images_log):
+    for img_idx in range(num_images_log):
         fig, ax = plt.subplots(1, 3)
-        uc_actions = uc_actions_list[i]
-        gc_actions = gc_actions_list[i]
-        action_label = to_numpy(batch_action_label[i])
+        uc_actions = uc_actions_list[img_idx]
+        gc_actions = gc_actions_list[img_idx]
+        action_label = to_numpy(batch_action_label[img_idx])
 
         traj_list = np.concatenate(
             [
@@ -1257,51 +1540,126 @@ def visualize_diffusion_action_distribution(
             ],
             axis=0,
         )
+
         # traj_labels = ["r", "GC", "GC_mean", "GT"]
         traj_colors = (
-            ["red"] * len(uc_actions) + ["green"] * len(gc_actions) + ["magenta"]
+            ["red"] * len(uc_actions) + ["green"] * len(gc_actions) + ["yellow"]
         )
         traj_alphas = [0.1] * (len(uc_actions) + len(gc_actions)) + [1.0]
 
         # make points numpy array of robot positions (0, 0) and goal positions
-        point_list = [np.array([0, 0]), to_numpy(batch_goal_pos[i])]
+        point_list = [np.array([0, 0]), to_numpy(batch_goal_pos[img_idx])]
         point_colors = ["green", "red"]
         point_alphas = [1.0, 1.0]
 
-        plot_trajs_and_points(
-            ax[0],
-            traj_list,
-            point_list,
-            traj_colors,
-            point_colors,
-            traj_labels=None,
-            point_labels=None,
-            quiver_freq=0,
-            traj_alphas=traj_alphas,
-            point_alphas=point_alphas,
-        )
+        try:
+            plot_trajs_and_points(
+                ax[0],
+                traj_list,
+                point_list,
+                traj_colors,
+                point_colors,
+                traj_labels=None,
+                point_labels=None,
+                quiver_freq=0,
+                traj_alphas=traj_alphas,
+                point_alphas=point_alphas,
+            )
+        except Exception as e:
+            print(f"\n[ERROR] Exception in plot_trajs_and_points: {e}")
+            print(f"  traj_list shape: {traj_list.shape if hasattr(traj_list, 'shape') else 'not array'}")
+            print(f"  point_list shapes: {[point.shape if hasattr(point, 'shape') else 'not array' for point in point_list]}")
+            raise
 
-        obs_image = to_numpy(batch_viz_obs_images[i])
-        goal_image = to_numpy(batch_viz_goal_images[i])
-        # move channel to last dimension
-        obs_image = np.moveaxis(obs_image, 0, -1)
-        goal_image = np.moveaxis(goal_image, 0, -1)
-        ax[1].imshow(obs_image)
-        ax[2].imshow(goal_image)
+        # Extract model outputs for _log_data
+        # Use the goal-conditioned actions as predictions
+        action_pred = from_numpy(gc_actions).to(device)
+        # Use the average distance prediction
+        dist_pred = from_numpy(np.array([gc_distances_avg[img_idx]])).to(device).unsqueeze(-1)
+
+        # If dataset_index is not provided, create a dummy one
+        local_dataset_index = dataset_index[img_idx:img_idx+1] if dataset_index is not None else torch.zeros(1, dtype=torch.long).to(device)
+
+        # Use img_idx instead of i to index the batch tensors
+        if batch_viz_obs_images is not None and batch_viz_goal_images is not None:
+            obs_image = to_numpy(batch_viz_obs_images[img_idx])
+            goal_image = to_numpy(batch_viz_goal_images[img_idx])
+            # move channel to last dimension
+            obs_image = np.moveaxis(obs_image, 0, -1)
+            goal_image = np.moveaxis(goal_image, 0, -1)
+            ax[1].imshow(obs_image)
+            ax[2].imshow(goal_image)
+        else:
+            # If visualization images are not available, show placeholder
+            ax[1].text(0.5, 0.5, "No observation image\n(using pre-built DINO features)",
+                      horizontalalignment='center', verticalalignment='center')
+            ax[2].text(0.5, 0.5, "No goal image\n(using pre-built DINO features)",
+                      horizontalalignment='center', verticalalignment='center')
+            ax[1].set_xticks([])
+            ax[1].set_yticks([])
+            ax[2].set_xticks([])
+            ax[2].set_yticks([])
 
         # set title
         ax[0].set_title(f"diffusion action predictions")
         ax[1].set_title(f"observation")
         ax[2].set_title(
-            f"goal: label={np_distance_labels[i]} gc_dist={gc_distances_avg[i]:.2f}±{gc_distances_std[i]:.2f}"
+            f"goal: label={np_distance_labels[img_idx]} gc_dist={gc_distances_avg[img_idx]:.2f}±{gc_distances_std[img_idx]:.2f}"
         )
 
         # make the plot large
         fig.set_size_inches(18.5, 10.5)
 
-        save_path = os.path.join(visualize_path, f"sample_{i}.png")
+        save_path = os.path.join(visualize_path, f"sample_{img_idx}.png")
         plt.savefig(save_path)
-        wandb_list.append(wandb.Image(save_path))
+        if use_mlflow:
+            mlflow.log_artifact(save_path, artifact_path=f"{eval_type}/action_samples")
         plt.close(fig)
-    if len(wandb_list) > 0 and use_wandb:
-        wandb.log({f"{eval_type}_action_samples": wandb_list}, commit=False)
+
+        # Call _log_data with all required parameters
+        if loggers is not None:
+            # Skip image logging if visualization images are not available
+            if batch_viz_obs_images is not None and batch_viz_goal_images is not None:
+                _log_data(
+                    i=i,  # Use the original batch index
+                    epoch=epoch,
+                    num_batches=num_batches,
+                    normalized=False,  # Always set to False we already normalize
+                    project_folder=project_folder,
+                    num_images_log=num_images_log,
+                    loggers=loggers,
+                    obs_image=batch_viz_obs_images[img_idx:img_idx+1],  # Use only the current image
+                    goal_image=batch_viz_goal_images[img_idx:img_idx+1],  # Use only the current image
+                    action_pred=action_pred,  # Use the goal-conditioned actions as predictions
+                    action_label=batch_action_label[img_idx:img_idx+1],  # This is 'actions' from train_nomad
+                    dist_pred=dist_pred,  # Use the average distance prediction
+                    dist_label=batch_distance_labels[img_idx:img_idx+1],  # This is 'distance' from train_nomad
+                    goal_pos=batch_goal_pos[img_idx:img_idx+1],  # Use only the current goal position
+                    dataset_index=local_dataset_index,
+                    mlflow_log_freq=mlflow_log_freq,
+                    print_log_freq=print_log_freq,
+                    image_log_freq=image_log_freq,
+                    use_mlflow=use_mlflow,
+                    mode=eval_type,  # Use the provided eval_type instead of hardcoding "train"
+                    use_latest=use_latest,
+                )
+            else:
+                # Log metrics without images
+                for logger_name, logger in loggers.items():
+                    if logger_name == "action_loss":
+                        # Log action prediction error
+                        action_error = torch.mean(torch.abs(action_pred - batch_action_label[img_idx:img_idx+1]))
+                        logger.log_data(action_error.item())
+                    elif logger_name == "dist_loss":
+                        # Log distance prediction error
+                        dist_error = torch.mean(torch.abs(dist_pred - batch_distance_labels[img_idx:img_idx+1].unsqueeze(-1)))
+                        logger.log_data(dist_error.item())
+                    elif logger_name == "total_loss":
+                        # Log total loss (weighted sum of action and distance losses)
+                        action_error = torch.mean(torch.abs(action_pred - batch_action_label[img_idx:img_idx+1]))
+                        dist_error = torch.mean(torch.abs(dist_pred - batch_distance_labels[img_idx:img_idx+1].unsqueeze(-1)))
+                        total_error = action_error + dist_error
+                        logger.log_data(total_error.item())
+
+        del action_pred, dist_pred, local_dataset_index
+        torch.cuda.empty_cache()

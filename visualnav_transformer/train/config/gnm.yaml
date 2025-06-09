@@ -4,7 +4,7 @@ project_name: vint-release
 run_name: gnm
 
 # training setup
-use_wandb: True # set to false if you don't want to log to wandb
+use_mlflow: True # set to false if you don't want to log to mlflow
 train: True
 batch_size: 400
 eval_batch_size: 400
@@ -108,5 +108,5 @@ print_log_freq: 100 # in iterations
 image_log_freq: 1000 # in iterations
 num_images_log: 8 # number of images to log in a logging iteration
 pairwise_test_freq: 20 # in epochs
-wandb_log_freq: 10 # in iterations
+mlflow_log_freq: 10 # in iterations
 eval_freq: 1 # in epochs

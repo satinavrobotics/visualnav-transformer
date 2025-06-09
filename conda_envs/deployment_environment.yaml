@@ -1,4 +1,6 @@
-name: visnav_deployment_env
+# conda env create -f conda_envs/deployment_environment.yaml
+
+name: sati_deployment
 channels:
   - defaults
   - conda-forge

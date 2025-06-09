@@ -80,6 +80,28 @@ def process_sacson_img(msg) -> Image:
     pil_image = Image.fromarray(image_np)
     return pil_image
 
+def process_musohu_img(msg) -> Image:
+    """
+    Process image data from a topic that publishes sensor_msgs/CompressedImage to a PIL image for the musohu dataset.
+    This function converts the compressed image data to a PIL image, optionally performs a center crop to maintain
+    a 4:3 aspect ratio, and then resizes the image to IMAGE_SIZE.
+    """
+    try:
+        # Convert the compressed image to a PIL Image and ensure it is in RGB format.
+        img = Image.open(io.BytesIO(msg.data)).convert("RGB")
+    except Exception as e:
+        print("Error processing musohu image:", e)
+        raise
+
+    # Optionally enforce a 4:3 aspect ratio by center cropping if needed.
+    w, h = img.size
+    desired_width = int(h * IMAGE_ASPECT_RATIO)
+    if w > desired_width:
+        img = TF.center_crop(img, (h, desired_width))
+    # Resize the image to the target resolution.
+    img = img.resize(IMAGE_SIZE)
+    return img
+
 
 #######################################################################
 

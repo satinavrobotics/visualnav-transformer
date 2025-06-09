@@ -26,7 +26,7 @@ class Logger:
         latest = round(self.latest(), self.rounding)
         average = round(self.average(), self.rounding)
         moving_average = round(self.moving_average(), self.rounding)
-        output = f"{self.full_name()}: {latest} ({self.window_size}pt moving_avg: {moving_average}) (avg: {average})"
+        output = f"{self.full_name()}: {latest} - {self.window_size}pt moving_avg: {moving_average} - avg: {average}"
         return output
 
     def log_data(self, data: float):
@@ -34,7 +34,7 @@ class Logger:
             self.data.append(data)
 
     def full_name(self) -> str:
-        return f"{self.name} ({self.dataset})"
+        return f"{self.name}-{self.dataset}"
 
     def latest(self) -> float:
         if len(self.data) > 0:

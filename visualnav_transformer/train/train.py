@@ -1,12 +1,13 @@
 import argparse
 import os
 import time
+import subprocess
 
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
-import wandb
+import mlflow
 import yaml
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from torch.optim import Adam, AdamW
@@ -20,6 +21,7 @@ IMPORT YOUR MODEL HERE
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 
 from visualnav_transformer.train.vint_train.data.vint_dataset import ViNT_Dataset
+from visualnav_transformer.train.vint_train.data.feature_dataset import FeatureDataset
 from visualnav_transformer.train.vint_train.models.gnm.gnm import GNM
 from visualnav_transformer.train.vint_train.models.nomad.nomad import (
     DenseNetwork,
@@ -44,6 +46,22 @@ with open(
     os.path.join(ROOT_TRAIN, "vint_train/data/data_config.yaml"), "r"
 ) as f:
     data_configs = yaml.safe_load(f)
+
+def log_semaphore_count(label=""):
+    try:
+        result = subprocess.check_output("ls /dev/shm | grep -c ^sem\\.", shell=True)
+        count = int(result.decode().strip())
+        print(f"[DEBUG] 🔍 /dev/shm semaphore count {label}: {count}")
+        return count
+    except Exception as e:
+        print(f"[WARN] Could not check /dev/shm semaphores: {e}")
+        return -1
+
+def clean_stale_semaphores(threshold=40):
+    count = log_semaphore_count("before cleanup")
+    if count > threshold:
+        print(f"⚠️ Too many semaphores ({count}), cleaning...")
+        subprocess.run("ls /dev/shm/sem.* 2>/dev/null | xargs -r rm -v", shell=True)
 
 
 def main(config):
@@ -89,9 +107,15 @@ def main(config):
     if "clip_goals" not in config:
         config["clip_goals"] = False
 
-    for dataset_index, dataset_name in enumerate(data_configs["datasets"]):    
-        data_config = config["datasets"][dataset_name]
-        if not data_config["available"]:
+    for dataset_index, dataset_name in enumerate(data_configs["datasets"]):
+        data_config = data_configs["datasets"][dataset_name]
+
+        if not bool(data_config["available"]):
+            continue
+
+        # Skip viz_data dataset - it's only used for visualization, not training
+        if dataset_name == "viz_data":
+            print(f"Skipping {dataset_name} - visualization dataset only")
             continue
         if "negative_mining" not in data_config:
             data_config["negative_mining"] = True
@@ -102,55 +126,169 @@ def main(config):
         if "waypoint_spacing" not in data_config:
             data_config["waypoint_spacing"] = 1
 
-        dataset = ViNT_Dataset(
-            data_folder=data_config["data_folder"],
-            split="train",
-            split_ratio=data_config["split"]
-            dataset_name=dataset_name,
-            dataset_index=dataset_index
-            image_size=config["image_size"],
-            waypoint_spacing=data_config["waypoint_spacing"],
-            min_dist_cat=config["distance"]["min_dist_cat"],
-            max_dist_cat=config["distance"]["max_dist_cat"],
-            min_action_distance=config["action"]["min_dist_cat"],
-            max_action_distance=config["action"]["max_dist_cat"],
-            negative_mining=data_config["negative_mining"],
-            len_traj_pred=config["len_traj_pred"],
-            learn_angle=config["learn_angle"],
-            context_size=config["context_size"],
-            end_slack=data_config["end_slack"],
-            goals_per_obs=data_config["goals_per_obs"],
-            normalize=config["normalize"]
-        )
-        if data_split_type == "train":
+        train_split = data_config["split"]
+        test_split = 1 - train_split
+
+        if train_split != 0.0:
+            # Check if using pre-built DINO features
+            use_prebuilt_features = config.get("prebuilt_dino", False)
+
+            if not use_prebuilt_features:
+                # Use the original ViNT_Dataset
+                dataset = ViNT_Dataset(
+                    data_folder=data_config["data_folder"],
+                    split="train",
+                    split_ratio=train_split,
+                    dataset_name=dataset_name,
+                    dataset_index=dataset_index,
+                    image_size=config["image_size"],
+                    waypoint_spacing=data_config["waypoint_spacing"],
+                    metric_waypoint_spacing=data_config["metric_waypoint_spacing"],
+                    min_dist_cat=config["distance"]["min_dist_cat"],
+                    max_dist_cat=config["distance"]["max_dist_cat"],
+                    min_action_distance=config["action"]["min_dist_cat"],
+                    max_action_distance=config["action"]["max_dist_cat"],
+                    negative_mining=data_config["negative_mining"],
+                    len_traj_pred=config["len_traj_pred"],
+                    learn_angle=config["learn_angle"],
+                    context_size=config["context_size"],
+                    end_slack=data_config["end_slack"],
+                    goals_per_obs=data_config["goals_per_obs"],
+                    normalize=config["normalize"]
+                )
+            else:
+                # Use the FeatureDataset for pre-built DINO features
+                # Construct the feature folder path (assuming it's in a dino_cache_large subfolder)
+                feature_folder = os.path.join(data_config["data_folder"], "dino_cache_large")
+
+                dataset = FeatureDataset(
+                    data_folder=data_config["data_folder"],
+                    feature_folder=feature_folder,
+                    split="train",
+                    split_ratio=train_split,
+                    dataset_name=dataset_name,
+                    dataset_index=dataset_index,
+                    image_size=config["image_size"],
+                    waypoint_spacing=data_config["waypoint_spacing"],
+                    metric_waypoint_spacing=data_config["metric_waypoint_spacing"],
+                    min_dist_cat=config["distance"]["min_dist_cat"],
+                    max_dist_cat=config["distance"]["max_dist_cat"],
+                    min_action_distance=config["action"]["min_dist_cat"],
+                    max_action_distance=config["action"]["max_dist_cat"],
+                    negative_mining=data_config["negative_mining"],
+                    len_traj_pred=config["len_traj_pred"],
+                    learn_angle=config["learn_angle"],
+                    context_size=config["context_size"],
+                    end_slack=data_config["end_slack"],
+                    goals_per_obs=data_config["goals_per_obs"],
+                    normalize=config["normalize"]
+                )
+
             train_dataset.append(dataset)
-        else:
-            dataset_type = f"{dataset_name}_{data_split_type}"
-            if dataset_type not in test_dataloaders:
-                test_dataloaders[dataset_type] = {}
+
+        if test_split != 0.0:
+            # Check if using pre-built DINO features
+            use_prebuilt_features = config.get("prebuilt_dino", False)
+
+            if not use_prebuilt_features:
+                # Use the original ViNT_Dataset
+                dataset = ViNT_Dataset(
+                    data_folder=data_config["data_folder"],
+                    split="test",
+                    split_ratio=test_split,
+                    dataset_name=dataset_name,
+                    dataset_index=dataset_index,
+                    image_size=config["image_size"],
+                    waypoint_spacing=data_config["waypoint_spacing"],
+                    metric_waypoint_spacing=data_config["metric_waypoint_spacing"],
+                    min_dist_cat=config["distance"]["min_dist_cat"],
+                    max_dist_cat=config["distance"]["max_dist_cat"],
+                    min_action_distance=config["action"]["min_dist_cat"],
+                    max_action_distance=config["action"]["max_dist_cat"],
+                    negative_mining=data_config["negative_mining"],
+                    len_traj_pred=config["len_traj_pred"],
+                    learn_angle=config["learn_angle"],
+                    context_size=config["context_size"],
+                    end_slack=data_config["end_slack"],
+                    goals_per_obs=data_config["goals_per_obs"],
+                    normalize=config["normalize"]
+                )
+            else:
+                # Use the FeatureDataset for pre-built DINO features
+                # Construct the feature folder path (assuming it's in a dino_cache_large subfolder)
+                feature_folder = os.path.join(data_config["data_folder"], "dino_cache_large")
+
+                dataset = FeatureDataset(
+                    data_folder=data_config["data_folder"],
+                    feature_folder=feature_folder,
+                    split="test",
+                    split_ratio=test_split,
+                    dataset_name=dataset_name,
+                    dataset_index=dataset_index,
+                    image_size=config["image_size"],
+                    waypoint_spacing=data_config["waypoint_spacing"],
+                    metric_waypoint_spacing=data_config["metric_waypoint_spacing"],
+                    min_dist_cat=config["distance"]["min_dist_cat"],
+                    max_dist_cat=config["distance"]["max_dist_cat"],
+                    min_action_distance=config["action"]["min_dist_cat"],
+                    max_action_distance=config["action"]["max_dist_cat"],
+                    negative_mining=data_config["negative_mining"],
+                    len_traj_pred=config["len_traj_pred"],
+                    learn_angle=config["learn_angle"],
+                    context_size=config["context_size"],
+                    end_slack=data_config["end_slack"],
+                    goals_per_obs=data_config["goals_per_obs"],
+                    normalize=config["normalize"]
+                )
+
+            # Use dataset_name as the dataset_type if not explicitly defined
+            dataset_type = dataset_name
             test_dataloaders[dataset_type] = dataset
 
     # combine all the datasets from different robots
     train_dataset = ConcatDataset(train_dataset)
 
+    # Reduce memory usage for DataLoader to prevent worker crashes
+    # If using pre-built DINO features, use minimal workers and disable persistent workers
+    use_prebuilt_features = config.get("prebuilt_dino", False)
+    if use_prebuilt_features:
+        print("Using minimal DataLoader settings for pre-built DINO features to prevent memory issues")
+        num_workers = 0  # Use no workers (single-process loading)
+        persistent_workers = False  # Disable persistent workers
+        batch_size = min(64, config["batch_size"])  # Reduce batch size if needed
+        print(f"Using batch size {batch_size} and {num_workers} workers")
+    else:
+        num_workers = config["num_workers"]
+        persistent_workers = True
+        batch_size = config["batch_size"]
+
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config["batch_size"],
+        batch_size=batch_size,
         shuffle=True,
-        num_workers=config["num_workers"],
+        num_workers=num_workers,
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=persistent_workers,
+        pin_memory=False,  # Disable pin_memory to reduce memory usage
     )
 
     if "eval_batch_size" not in config:
         config["eval_batch_size"] = config["batch_size"]
 
     for dataset_type, dataset in test_dataloaders.items():
+        # Use the same minimal settings for test dataloaders when using pre-built DINO features
+        if use_prebuilt_features:
+            test_batch_size = min(64, config["eval_batch_size"])
+            test_num_workers = 0
+        else:
+            test_batch_size = config["eval_batch_size"]
+            test_num_workers = 0  # Already set to 0
+
         test_dataloaders[dataset_type] = DataLoader(
             dataset,
-            batch_size=config["eval_batch_size"],
+            batch_size=test_batch_size,
             shuffle=True,
-            num_workers=0,
+            num_workers=test_num_workers,
             drop_last=False,
         )
 
@@ -175,14 +313,18 @@ def main(config):
             mha_num_attention_layers=config["mha_num_attention_layers"],
             mha_ff_dim_factor=config["mha_ff_dim_factor"],
         )
-    elif config["model_type"] == "nomad":
-        if config["vision_encoder"] == "nomad_vint":
+    elif config["model_type"] == "nomad" or config["model_type"] == "pogany":
+        if config["vision_encoder"] == "nomad_vint" or config["vision_encoder"] == "pogany_encoder":
+            # Pass the prebuilt_dino flag to NoMaD_ViNT
+            use_prebuilt_features = config.get("prebuilt_dino", False)
             vision_encoder = NoMaD_ViNT(
                 obs_encoding_size=config["encoding_size"],
                 context_size=config["context_size"],
+                obs_encoder=config["obs_encoder"],  # Pass the obs_encoder parameter
                 mha_num_attention_heads=config["mha_num_attention_heads"],
                 mha_num_attention_layers=config["mha_num_attention_layers"],
                 mha_ff_dim_factor=config["mha_ff_dim_factor"],
+                use_prebuilt_features=use_prebuilt_features,
             )
             vision_encoder = replace_bn_with_gn(vision_encoder)
         elif config["vision_encoder"] == "vib":
@@ -331,7 +473,7 @@ def main(config):
             current_epoch=current_epoch,
             learn_angle=config["learn_angle"],
             alpha=config["alpha"],
-            use_wandb=config["use_wandb"],
+            use_mlflow=config["use_mlflow"],
             eval_fraction=config["eval_fraction"],
         )
     elif config["model_type"] == "nomad":
@@ -349,16 +491,16 @@ def main(config):
             device=device,
             project_folder=config["project_folder"],
             print_log_freq=config["print_log_freq"],
-            wandb_log_freq=config["wandb_log_freq"],
+            mlflow_log_freq=config["mlflow_log_freq"],
             image_log_freq=config["image_log_freq"],
             num_images_log=config["num_images_log"],
             current_epoch=current_epoch,
             alpha=float(config["alpha"]),
-            use_wandb=config["use_wandb"],
+            use_mlflow=config["use_mlflow"],
             eval_fraction=config["eval_fraction"],
             eval_freq=config["eval_freq"],
         )
-    elif config["model_type"] == "sati":
+    elif config["model_type"] == "pogany":
         train_eval_loop_nomad(
             train_model=config["train"],
             model=model,
@@ -373,12 +515,12 @@ def main(config):
             device=device,
             project_folder=config["project_folder"],
             print_log_freq=config["print_log_freq"],
-            wandb_log_freq=config["wandb_log_freq"],
+            mlflow_log_freq=config["mlflow_log_freq"],
             image_log_freq=config["image_log_freq"],
             num_images_log=config["num_images_log"],
             current_epoch=current_epoch,
             alpha=float(config["alpha"]),
-            use_wandb=config["use_wandb"],
+            use_mlflow=config["use_mlflow"],
             eval_fraction=config["eval_fraction"],
             eval_freq=config["eval_freq"],
         )
@@ -421,18 +563,28 @@ if __name__ == "__main__":
         ],  # should error if dir already exists to avoid overwriting and old project
     )
 
-    if config["use_wandb"]:
-        wandb.login()
-        wandb.init(
-            project=config["project_name"],
-            settings=wandb.Settings(start_method="fork"),
-            entity="gnmv2",  # TODO: change this to your wandb entity
-        )
-        wandb.save(args.config, policy="now")  # save the config file
-        wandb.run.name = config["run_name"]
-        # update the wandb args with the training configurations
-        if wandb.run:
-            wandb.config.update(config)
+    if config["use_mlflow"]:
+        mlflow.set_tracking_uri("http://localhost:5003")
+        mlflow.set_experiment(config["project_name"])
+        mlflow.start_run(run_name=config["run_name"])
+
+        # log parameters
+        mlflow.log_params({k: v for k, v in config.items() if isinstance(v, (int, float, str, bool))})
+
+        # optionally log the config file
+        mlflow.log_artifact(args.config)
 
     print(config)
-    main(config)
+
+    # Added semaphore logging for cpu ram issues
+    clean_stale_semaphores()
+    log_semaphore_count("after cleanup")
+
+    try:
+        main(config)
+    except Exception as e:
+        print(f"[ERROR] Training crashed: {e}")
+        log_semaphore_count("on crash")
+        raise
+
+    log_semaphore_count("after training")

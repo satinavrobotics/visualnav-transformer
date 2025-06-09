@@ -1,0 +1,37 @@
+project_name: satinav_dino_cache
+run_name: dino_cache
+
+# DINO cache parameters
+dino_model_type: large  # Options: small, base, large, giant
+feature_chunk_size: 200  # Number of features in each chunk
+feature_chunk_overlap: 10  # Overlap between consecutive chunks
+min_trajectory_length: 10  # Minimum number of images in a trajectory to process
+batch_size: 32  # Batch size for feature extraction
+keep_pt_files: True  # Keep the .pt files after creating the LMDB cache
+
+# GPU settings
+gpu_ids: [0]
+num_workers: 8
+seed: 0
+
+# normalization for the action space
+normalize: True
+
+# context
+context_type: temporal
+context_size: 3
+
+# distance bounds for distance and action and distance predictions
+distance:
+  min_dist_cat: 0
+  max_dist_cat: 20
+action:
+  min_dist_cat: 3
+  max_dist_cat: 20
+
+# action output params
+len_traj_pred: 8
+learn_angle: False
+
+# dataset specific parameters
+image_size: [320, 240] # width, height

@@ -4,7 +4,7 @@ from typing import Optional
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import wandb
+import mlflow
 import yaml
 
 from visualnav_transformer.train.vint_train.visualizing.visualize_utils import (
@@ -37,7 +37,7 @@ def visualize_traj_pred(
     save_folder: str,
     epoch: int,
     num_images_preds: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
     display: bool = False,
 ):
     """
@@ -55,7 +55,7 @@ def visualize_traj_pred(
         save_folder (str): folder to save the images. If None, will not save the images
         epoch (int): current epoch number
         num_images_preds (int): number of images to visualize
-        use_wandb (bool): whether to use wandb to log the images
+        use_mlflow (bool): whether to use mlflow to log the images
         display (bool): whether to display the images
     """
     visualize_path = None
@@ -67,50 +67,75 @@ def visualize_traj_pred(
     if not os.path.exists(visualize_path):
         os.makedirs(visualize_path)
 
+    # Check if batch_pred_waypoints has multiple predictions per sample
+    multi_pred = False
+    if len(batch_pred_waypoints) > len(batch_obs_images):
+        multi_pred = True
+
+    # Only check that the other dimensions match
     assert (
         len(batch_obs_images)
         == len(batch_goal_images)
         == len(batch_goals)
-        == len(batch_pred_waypoints)
         == len(batch_label_waypoints)
     )
+
+    # Only enforce matching batch size for pred_waypoints if not multi_pred
+    if not multi_pred:
+        assert len(batch_pred_waypoints) == len(batch_obs_images)
 
     dataset_names = list(data_config.keys())
     dataset_names.sort()
 
     batch_size = batch_obs_images.shape[0]
-    wandb_list = []
     for i in range(min(batch_size, num_images_preds)):
         obs_img = numpy_to_img(batch_obs_images[i])
         goal_img = numpy_to_img(batch_goal_images[i])
         dataset_name = dataset_names[int(dataset_indices[i])]
         goal_pos = batch_goals[i]
-        pred_waypoints = batch_pred_waypoints[i]
         label_waypoints = batch_label_waypoints[i]
 
+        # Handle multiple predictions per sample
+        if multi_pred:
+            # If we have multiple predictions, select 10 random ones to visualize
+            import random
+            num_preds_to_show = min(2, len(batch_pred_waypoints))
+            pred_indices = random.sample(range(len(batch_pred_waypoints)), num_preds_to_show)
+            pred_waypoints = [batch_pred_waypoints[idx] for idx in pred_indices]
+        else:
+            # Single prediction per sample
+            pred_waypoints = [batch_pred_waypoints[i]]
+
         if normalized:
-            pred_waypoints *= data_config[dataset_name]["metric_waypoint_spacing"]
+            # Apply normalization to all predictions
+            if multi_pred:
+                for j in range(len(pred_waypoints)):
+                    pred_waypoints[j] = pred_waypoints[j] * data_config[dataset_name]["metric_waypoint_spacing"]
+            else:
+                pred_waypoints[0] = pred_waypoints[0] * data_config[dataset_name]["metric_waypoint_spacing"]
+
             label_waypoints *= data_config[dataset_name]["metric_waypoint_spacing"]
             goal_pos *= data_config[dataset_name]["metric_waypoint_spacing"]
 
         save_path = None
         if visualize_path is not None:
-            save_path = os.path.join(visualize_path, f"{str(i).zfill(4)}.png")
+            # Include batch index and epoch in filename to avoid overwriting
+            save_path = os.path.join(visualize_path, f"epoch{epoch}_batch{str(i).zfill(4)}_sample{str(i).zfill(4)}.png")
 
+        # Modified to handle multiple predictions
         compare_waypoints_pred_to_label(
             obs_img,
             goal_img,
             dataset_name,
             goal_pos,
-            pred_waypoints,
+            pred_waypoints,  # Now a list of predictions
             label_waypoints,
             save_path,
             display,
+            multi_pred=multi_pred,  # Pass flag to indicate multiple predictions
         )
-        if use_wandb:
-            wandb_list.append(wandb.Image(save_path))
-    if use_wandb:
-        wandb.log({f"{eval_type}_action_prediction": wandb_list}, commit=False)
+        if use_mlflow:
+            mlflow.log_artifact(save_path, artifact_path=f"{eval_type}/action_prediction")
 
 
 def compare_waypoints_pred_to_label(
@@ -122,6 +147,7 @@ def compare_waypoints_pred_to_label(
     label_waypoints: np.ndarray,
     save_path: Optional[str] = None,
     display: Optional[bool] = False,
+    multi_pred: bool = False,
 ):
     """
     Compare predicted path with the gt path of waypoints using egocentric visualization.
@@ -139,25 +165,55 @@ def compare_waypoints_pred_to_label(
 
     fig, ax = plt.subplots(1, 3)
     start_pos = np.array([0, 0])
-    if len(pred_waypoints.shape) > 2:
-        trajs = [*pred_waypoints, label_waypoints]
+    # Handle multiple predictions
+    if multi_pred:
+        # pred_waypoints is a list of predictions
+        trajs = pred_waypoints + [label_waypoints]
     else:
-        trajs = [pred_waypoints, label_waypoints]
+        # Single prediction
+        if len(pred_waypoints.shape) > 2:
+            trajs = [*pred_waypoints, label_waypoints]
+        else:
+            trajs = [pred_waypoints, label_waypoints]
+    # Create colors for multiple trajectories if needed
+    if multi_pred:
+        # Use different shades of cyan for predictions and yellow for ground truth
+        # CYAN and YELLOW are numpy arrays, so we need to create a list of arrays
+        YELLOW = np.array([1, 1, 0])  # RGB for yellow
+        traj_colors = [np.array(CYAN) for _ in range(len(pred_waypoints))] + [np.array(YELLOW)]
+
+        # Use different alphas for predictions
+        # Make sure we have one alpha for each trajectory (predictions + ground truth)
+        num_trajs = len(pred_waypoints) + 1  # +1 for ground truth
+
+        # Create alphas: lower values for most predictions, higher for last prediction and ground truth
+        if num_trajs == 2:  # One prediction, one ground truth
+            traj_alphas = [0.7, 1.0]
+        else:  # Multiple predictions plus ground truth
+            traj_alphas = [0.3] * (num_trajs - 2) + [0.7, 1.0]
+    else:
+        YELLOW = np.array([1, 1, 0])  # RGB for yellow
+        traj_colors = [np.array(CYAN), np.array(YELLOW)]
+        traj_alphas = None
+
     plot_trajs_and_points(
         ax[0],
         trajs,
         [start_pos, goal_pos],
-        traj_colors=[CYAN, MAGENTA],
+        traj_colors=traj_colors,
         point_colors=[GREEN, RED],
+        traj_alphas=traj_alphas,
     )
+
     plot_trajs_and_points_on_image(
         ax[1],
         obs_img,
         dataset_name,
         trajs,
         [start_pos, goal_pos],
-        traj_colors=[CYAN, MAGENTA],
+        traj_colors=traj_colors,
         point_colors=[GREEN, RED],
+        traj_alphas=traj_alphas,
     )
     ax[2].imshow(goal_img)
 
@@ -184,6 +240,7 @@ def plot_trajs_and_points_on_image(
     list_points: list,
     traj_colors: list = [CYAN, MAGENTA],
     point_colors: list = [RED, GREEN],
+    traj_alphas: Optional[list] = None,
 ):
     """
     Plot trajectories and points on an image. If there is no configuration for the camera interinstics of the dataset, the image will be plotted as is.
@@ -236,10 +293,19 @@ def plot_trajs_and_points_on_image(
                 clip=False,
             )
             if len(traj_pixels.shape) == 2:
+                # Make sure we don't try to access an index that's out of range
+                if i < len(traj_colors):
+                    color = traj_colors[i]
+                else:
+                    color = traj_colors[0] if len(traj_colors) > 0 else CYAN
+
+                alpha = traj_alphas[i] if traj_alphas is not None and i < len(traj_alphas) else 1.0
+
                 ax.plot(
                     traj_pixels[:250, 0],
                     traj_pixels[:250, 1],
-                    color=traj_colors[i],
+                    color=color,
+                    alpha=alpha,
                     lw=2.5,
                 )
 
@@ -302,41 +368,66 @@ def plot_trajs_and_points(
         len(list_trajs) <= len(traj_colors) or default_coloring
     ), "Not enough colors for trajectories"
     assert len(list_points) <= len(point_colors), "Not enough colors for points"
+
     assert (
         traj_labels is None or len(list_trajs) == len(traj_labels) or default_coloring
     ), "Not enough labels for trajectories"
+
     assert point_labels is None or len(list_points) == len(
         point_labels
     ), "Not enough labels for points"
 
     for i, traj in enumerate(list_trajs):
         if traj_labels is None:
+            # Make sure we don't try to access an index that's out of range
+            if i < len(traj_colors):
+                color = traj_colors[i]
+            else:
+                color = traj_colors[0] if len(traj_colors) > 0 else CYAN
+
+            alpha = traj_alphas[i] if traj_alphas is not None and i < len(traj_alphas) else 1.0
+
             ax.plot(
                 traj[:, 0],
                 traj[:, 1],
-                color=traj_colors[i],
-                alpha=traj_alphas[i] if traj_alphas is not None else 1.0,
+                color=color,
+                alpha=alpha,
                 marker="o",
             )
         else:
+            # Make sure we don't try to access an index that's out of range
+            if i < len(traj_colors):
+                color = traj_colors[i]
+            else:
+                color = traj_colors[0] if len(traj_colors) > 0 else CYAN
+
+            label = traj_labels[i] if i < len(traj_labels) else "trajectory"
+            alpha = traj_alphas[i] if traj_alphas is not None and i < len(traj_alphas) else 1.0
+
             ax.plot(
                 traj[:, 0],
                 traj[:, 1],
-                color=traj_colors[i],
-                label=traj_labels[i],
-                alpha=traj_alphas[i] if traj_alphas is not None else 1.0,
+                color=color,
+                label=label,
+                alpha=alpha,
                 marker="o",
             )
+
         if (
             traj.shape[1] > 2 and quiver_freq > 0
         ):  # traj data also includes yaw of the robot
             bearings = gen_bearings_from_waypoints(traj)
+            # Make sure we don't try to access an index that's out of range
+            if i < len(traj_colors):
+                color = traj_colors[i]
+            else:
+                color = traj_colors[0] if len(traj_colors) > 0 else CYAN
             ax.quiver(
                 traj[::quiver_freq, 0],
                 traj[::quiver_freq, 1],
                 bearings[::quiver_freq, 0],
                 bearings[::quiver_freq, 1],
-                color=traj_colors[i] * 0.5,
+                color=color * 0.5,
                 scale=1.0,
             )
     for i, pt in enumerate(list_points):

@@ -39,7 +39,6 @@ scand:
     "/spot/camera/right/camera_info"
   ]
 
-
 locobot:
   odomtopics: "/odom"
   imtopics: "/usb_cam/image_raw"
@@ -55,3 +54,98 @@ sacson:
   odom_process_func: "nav_to_xy_yaw"
 
 # add your own datasets below:
+
+# … your existing datasets above …
+
+alcazar:
+  ### Dataset is recorded at 10HZ 
+  # Odometry comes from the ROS topic /pose
+  odomtopics:
+    - "/pose"
+  # Main RGB camera: use the left fisheye as your frontal view
+  imtopics:
+    - "/bumblenode/left/image_raw"
+  # If you wanted full stereo, you could list right here, too:
+  #  - "/bumblenode/right/image_raw"
+  # Pull the intrinsic matrix out of the matching camera_info topic
+  camera_info_topics:
+    - "/bumblenode/left/camera_info"
+  #  - "/bumblenode/right/camera_info"
+  # No extra yaw offset
+  ang_offset: 0.0
+  # Re-use the Tartan “raw→numpy→PIL” converter
+  img_process_func: "process_tartan_img"
+  # Default nav_msgs/Odometry → [x,y],yaw
+  odom_process_func: "nav_to_xy_yaw"
+
+gnd:
+  # Global Navigation Dataset (GND)
+  # - 6 GB bag, 2½ min long. front-facing RGB camera + filtered odometry
+  # the topic in your bags
+  imtopics:
+    - "/camera"
+    - "/camera_processed"
+    - "zed_node/rgb/image_rect_color/compressed"
+  odomtopics:
+    - "/odometry/filtered"
+  ang_offset: 0.0
+  img_process_func: "process_gnd_any"
+  odom_process_func: "nav_to_xy_yaw"
+  camera_info_topics:
+    - "/camera_info"
+    - "zed_node/rgb/camera_info"
+
+
+darpa:
+  # color camera (front-facing)
+  imtopics:
+    - "/camera/color/image_raw/compressed"
+    - "/camera_0/image_raw/compressed"
+  # use the filtered odometry coming from the depth-color pipeline
+  odomtopics:
+    - "/camera/depth/color/odom"
+  ang_offset: 0.0
+  img_process_func: "process_scand_img"       # generic compressed→PIL loader
+  odom_process_func: "nav_to_xy_yaw"
+  camera_info_topics:
+    - "/camera/color/camera_info"
+    - "/husky_velocity_controller/odom"
+
+robonav:
+  odomtopics:
+    - "/ukf_pose"              # Clearpath & Mattro EKF
+    - "/robin/vision_odometry" # Spot VIO
+    - "/robin/odometry"        # Spot body odom
+    - "/navsat/odom"           # EKF with GNSS
+    - "/gnss/odom"             # raw GNSS
+    - "/odom"                  # wheel encoders
+  imtopics:
+    - "/hazard_front/zed_node_front/left_raw/image_raw_color"
+  camera_info_topics:
+    - "/hazard_front/zed_node_front/left_raw/camera_info"
+  ang_offset: 0.0
+  img_process_func: "process_gnd_any"
+  odom_process_func: "nav_to_xy_yaw"
+
+
+# … your existing entries …
+
+rtsgt:
+  # Odometry (nav_msgs/Odometry)
+  odomtopics:
+    - "/warthog_velocity_controller/odom"
+  # Main RGB camera(s): pick the topic(s) you recorded your Basler streams on.
+  # If you only have one front camera, you can make this a single string instead of a list.
+  imtopics:
+    - "/cam/front/image_raw/compressed"
+  # If your topics are uncompressed (sensor_msgs/Image), just drop “/compressed”
+  # If the camera’s frame is rotated relative to your robot’s odom‐frame,
+  # you can adjust here (radians).  Leave at 0.0 if no extra yaw.
+  ang_offset: 0.0
+  # Which converter to run on each Image message (see img_process_*.py)
+  img_process_func: "process_scand_img"
+  # How to turn an Odometry into [x,y],yaw
+  odom_process_func: "nav_to_xy_yaw"
+  # (Optional) camera_info topics if you want us to pull intrinsics automatically
+  camera_info_topics:
+    - "/cam/front/camera_info"

@@ -41,6 +41,7 @@ class ViNT_Dataset(Dataset):
         end_slack: int = 0,
         goals_per_obs: int = 1,
         normalize: bool = True,
+        build_image_cache: bool = True,  # Default True to preserve existing behavior
     ):
         """
         Main ViNT dataset class
@@ -63,8 +64,9 @@ class ViNT_Dataset(Dataset):
         self.split = split
         self.split_ratio = split_ratio
         self.dataset_name = dataset_name
+        self.dataset_index = dataset_index
 
-        traj_names_file = os.path.join(self.data_folder, "metadata.json")
+        traj_names_file = os.path.join(self.data_folder, "dataset_metadata.json")
         with open(traj_names_file, "r") as f:
             json_data = json.load(f)
         trajectories = json_data["trajectories"]
@@ -93,10 +95,16 @@ class ViNT_Dataset(Dataset):
         self.end_slack = end_slack
         self.goals_per_obs = goals_per_obs
         self.normalize = normalize
- 
+        self.build_image_cache = build_image_cache  # Store the parameter
+
         self.trajectory_cache = {}
         self._load_index()
-        self._build_caches()
+        # Only build image cache if requested (default True for backward compatibility)
+        if self.build_image_cache:
+            self._build_caches()
+        else:
+            # Set image cache to None when not building it
+            self._image_cache = None
 
         if self.learn_angle:
             self.num_action_params = 3
@@ -110,7 +118,14 @@ class ViNT_Dataset(Dataset):
 
     def __setstate__(self, state):
         self.__dict__ = state
-        self._build_caches()
+        # Handle backward compatibility: if build_image_cache doesn't exist, default to True
+        if not hasattr(self, 'build_image_cache'):
+            self.build_image_cache = True
+        # Only build image cache if requested
+        if self.build_image_cache:
+            self._build_caches()
+        else:
+            self._image_cache = None
 
     def _build_caches(self, use_tqdm: bool = True):
         """
@@ -139,15 +154,19 @@ class ViNT_Dataset(Dataset):
                 with image_cache.begin(write=True) as txn:
                     for traj_name, time in tqdm_iterator:
                         image_path = get_data_path(self.data_folder, traj_name, time)
-                        with open(image_path, "rb") as f:
-                            txn.put(image_path.encode(), f.read())
+                        try:
+                            with open(image_path, "rb") as f:
+                                txn.put(image_path.encode(), f.read())
+                        except Exception as e:
+                            print(f"Failed to open {image_path}: {e}")
+
 
         # Reopen the cache file in read-only mode
         self._image_cache: lmdb.Environment = lmdb.open(cache_filename, readonly=True)
 
     def _build_index(self, use_tqdm: bool = False):
         """
-        Build an index consisting of tuples (trajectory name, time, max goal distance)
+        Build an index consisting of tuples (trajectory name, time, max goal distance).
         """
         samples_index = []
         goals_index = []
@@ -158,6 +177,7 @@ class ViNT_Dataset(Dataset):
             traj_data = self._get_trajectory(traj_name)
             traj_len = len(traj_data["position"])
 
+            # Create the goals index
             for goal_time in range(0, traj_len):
                 goals_index.append((traj_name, goal_time))
 
@@ -165,6 +185,8 @@ class ViNT_Dataset(Dataset):
             end_time = (
                 traj_len - self.end_slack - self.len_traj_pred * self.waypoint_spacing
             )
+
+            # Create the samples index
             for curr_time in range(begin_time, end_time):
                 max_goal_distance = min(
                     self.max_dist_cat * self.waypoint_spacing, traj_len - curr_time - 1
@@ -210,17 +232,32 @@ class ViNT_Dataset(Dataset):
             with open(index_to_data_path, "wb") as f:
                 pickle.dump((self.index_to_data, self.goals_index), f)
 
-    def _load_image(self, trajectory_name, time):
+    def _load_image(self, trajectory_name, time, retries=3):
         image_path = get_data_path(self.data_folder, trajectory_name, time)
 
-        try:
-            with self._image_cache.begin() as txn:
-                image_buffer = txn.get(image_path.encode())
-                image_bytes = bytes(image_buffer)
-            image_bytes = io.BytesIO(image_bytes)
-            return img_path_to_data(image_bytes, self.image_size)
-        except TypeError:
-            print(f"Failed to load image {image_path}")
+        # If image cache is disabled, load directly from filesystem
+        if self._image_cache is None:
+            try:
+                return img_path_to_data(image_path, self.image_size)
+            except Exception as e:
+                print(f"Failed to load image {image_path} from filesystem: {e}")
+                return None
+
+        # Original LMDB cache loading logic
+        attempt = 0
+        while attempt < retries:
+            try:
+                with self._image_cache.begin() as txn:
+                    image_buffer = txn.get(image_path.encode())
+                    if image_buffer is None:
+                        raise TypeError("Key not found in LMDB cache")
+                    image_bytes = bytes(image_buffer)
+                image_bytes = io.BytesIO(image_bytes)
+                return img_path_to_data(image_bytes, self.image_size)
+            except TypeError:
+                attempt += 1
+                print(f"Failed to load image {image_path}, attempt {attempt}/{retries}")
+        return None
 
     def _compute_actions(self, traj_data, curr_time, goal_time):
         start_index = curr_time
@@ -229,7 +266,11 @@ class ViNT_Dataset(Dataset):
         positions = traj_data["position"][
             start_index : end_index : self.waypoint_spacing
         ]
-        goal_pos = traj_data["position"][min(goal_time, len(traj_data["position"]) - 1)]
+
+        goal_pos = np.array(traj_data["position"][min(goal_time, len(traj_data["position"]) - 1)])
+
+        yaw = np.array(yaw) # Using np for avoiding list errors
+        positions = np.array(positions)
 
         if len(yaw.shape) == 2:
             yaw = yaw.squeeze(1)
@@ -282,9 +323,9 @@ class ViNT_Dataset(Dataset):
         if trajectory_name in self.trajectory_cache:
             return self.trajectory_cache[trajectory_name]
         else:
-            with open(
-                os.path.join(self.data_folder, trajectory_name, "traj_data.json"), "rb"
-            ) as f:
+            # trajectory_name already contains the full path from data_folder
+            traj_data_path = os.path.join(trajectory_name, "traj_data.json")
+            with open(traj_data_path, "rb") as f:
                 traj_data = json.load(f)
             self.trajectory_cache[trajectory_name] = traj_data
             return traj_data
@@ -319,12 +360,12 @@ class ViNT_Dataset(Dataset):
                 self.waypoint_spacing,
             )
         )
-        context = [(f_curr, t) for t in context_times]
+        context = [(f_curr, t) for t in context_times] # context is 4
 
-        obs_image = torch.cat([self._load_image(f, t) for f, t in context])
+        obs_image = torch.cat([self._load_image(f, t) for f, t in context]) # obs after concat is (channel * context, H, W) - ( 12, 240, 320)
 
         # Load goal image
-        goal_image = self._load_image(f_goal, goal_time)
+        goal_image = self._load_image(f_goal, goal_time) # goal_image is (3, 240, 320)
 
         # Load other trajectory data
         curr_traj_data = self._get_trajectory(f_curr)

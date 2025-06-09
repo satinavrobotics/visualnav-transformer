@@ -1,4 +1,6 @@
-name: nomad_train
+# conda env create -f conda_envs/train_environment.yaml
+
+name: sati_train
 channels:
 - defaults
 - pytorch
@@ -28,3 +30,6 @@ dependencies:
   - lmdb
   - vit-pytorch
   - positional-encodings
+  - mlflow
+  - huggingface_hub==0.12.1
+

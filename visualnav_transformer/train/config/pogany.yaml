@@ -1,13 +1,13 @@
-project_name: nomad
-run_name: nomad
+project_name: satinav_train
+run_name: pogany
 
 # training setup
 use_mlflow: True # set to false if you don't want to log to mlflow
-train: True
+prebuilt_dino: True # set to true to use pre-built DINO features
 batch_size: 256
 epochs: 100
 gpu_ids: [0]
-num_workers: 12
+num_workers: 8
 lr: 1e-4
 optimizer: adamw
 clipping: False
@@ -21,10 +21,10 @@ plateau_factor: 0.5
 seed: 0
 
 # model params
-model_type: nomad
-vision_encoder: nomad_vint
+model_type: pogany
+vision_encoder: pogany_encoder
 encoding_size: 256
-obs_encoder: efficientnet-b0
+obs_encoder: dinov2-large
 attn_unet: False
 cond_predict_scale: False
 mha_num_attention_heads: 4
@@ -59,7 +59,7 @@ len_traj_pred: 8
 learn_angle: False
 
 # dataset specific parameters
-image_size: [96, 96] # width, height
+image_size: [320, 240] # width, height
 
 print_log_freq: 100 # in iterations
 image_log_freq: 1000 #0 # in iterations

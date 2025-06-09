@@ -19,7 +19,8 @@ def get_data_path(data_folder: str, f: str, time: int, data_type: str = "image")
         "image": ".jpg",
         # add more data types here
     }
-    return os.path.join(data_folder, f, f"{str(time)}{data_ext[data_type]}")
+    # f already contains the full path from data_folder, so don't join with data_folder again
+    return os.path.join(f, f"{str(time)}{data_ext[data_type]}")
 
 
 def yaw_rotmat(yaw: float) -> np.ndarray:
@@ -135,4 +136,5 @@ def img_path_to_data(
         torch.Tensor: resized image as tensor
     """
     # return transform_images(Image.open(path), transform, image_resize_size, aspect_ratio)
-    return resize_and_aspect_crop(Image.open(path), image_resize_size)
+    with Image.open(path) as img:
+        return resize_and_aspect_crop(img, image_resize_size)

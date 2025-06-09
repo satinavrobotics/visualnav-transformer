@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 import tqdm
-import wandb
+import mlflow
 import yaml
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.training_utils import EMAModel
@@ -132,10 +132,10 @@ def train_sati(
     epoch: int,
     alpha: float = 1e-4,
     print_log_freq: int = 100,
-    wandb_log_freq: int = 10,
+    mlflow_log_freq: int = 10,
     image_log_freq: int = 1000,
     num_images_log: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
 ):
     """
     Train the model for one epoch.
@@ -154,7 +154,7 @@ def train_sati(
         print_log_freq: how often to print loss
         image_log_freq: how often to log images
         num_images_log: number of images to log
-        use_wandb: whether to use wandb
+        use_mlflow: whether to use mlflow
     """
     model.train()
     num_batches = len(dataloader)
@@ -189,6 +189,9 @@ def train_sati(
             action_mask = action_mask.to(device)
 
             B = actions.shape[0]
+            
+            # global_step for mlflow
+            global_step = epoch * num_batches + i
 
             # Generate random goal mask
             obsgoal_cond = model(
@@ -260,9 +263,10 @@ def train_sati(
             # Logging
             loss_cpu = loss.item()
             tepoch.set_postfix(loss=loss_cpu)
-            wandb.log({"total_loss": loss_cpu})
-            wandb.log({"dist_loss": dist_loss.item()})
-            wandb.log({"diffusion_loss": diffusion_loss.item()})
+            
+            mlflow.log_metric("total_loss", loss_cpu, step=global_step)
+            mlflow.log_metric("dist_loss", dist_loss.item(), step=global_step)
+            mlflow.log_metric("diffusion_loss", diffusion_loss.item(), step=global_step)
 
             if i % print_log_freq == 0:
                 losses = _compute_losses_sati(
@@ -288,8 +292,9 @@ def train_sati(
                             f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
                         )
 
-                if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
-                    wandb.log(data_log, commit=True)
+                if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
+                    for key, val in data_log.items():
+                        mlflow.log_metric(key, val, step=global_step)
 
             if image_log_freq != 0 and i % image_log_freq == 0:
                 visualize_diffusion_action_distribution(
@@ -306,7 +311,7 @@ def train_sati(
                     epoch,
                     num_images_log,
                     30,
-                    use_wandb,
+                    use_mlflow,
                 )
 
 
@@ -321,11 +326,11 @@ def evaluate_sati(
     project_folder: str,
     epoch: int,
     print_log_freq: int = 100,
-    wandb_log_freq: int = 10,
+    mlflow_log_freq: int = 10,
     image_log_freq: int = 1000,
     num_images_log: int = 8,
     eval_fraction: float = 0.25,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
 ):
     """
     Evaluate the model on the given evaluation dataset.
@@ -340,12 +345,12 @@ def evaluate_sati(
         project_folder (string): path to project folder
         epoch (int): current epoch
         print_log_freq (int): how often to print logs
-        wandb_log_freq (int): how often to log to wandb
+        mlflow_log_freq (int): how often to log to mlflow
         image_log_freq (int): how often to log images
         alpha (float): weight for action loss
         num_images_log (int): number of images to log
         eval_fraction (float): fraction of data to use for evaluation
-        use_wandb (bool): whether to use wandb for logging
+        use_mlflow (bool): whether to use mlflow for logging
     """
     goal_mask_prob = torch.clip(torch.tensor(goal_mask_prob), 0, 1)
     ema_model = ema_model.averaged_model
@@ -391,6 +396,9 @@ def evaluate_sati(
             action_mask = action_mask.to(device)
 
             B = actions.shape[0]
+            
+            # global_step for mlflow
+            global_step = epoch * num_batches + i
 
             features_ema = ema_model(
                 "vision_encoder",
@@ -429,7 +437,8 @@ def evaluate_sati(
             loss_cpu = ema_loss.item()
             tepoch.set_postfix(loss=loss_cpu)
 
-            wandb.log({"diffusion_eval_loss (ema)": ema_loss})
+            if use_mlflow:
+                mlflow.log_metric("diffusion_eval_loss_ema", ema_loss.item(), step=global_step)
 
             if i % print_log_freq == 0 and print_log_freq != 0:
                 losses = _compute_losses_sati(
@@ -455,8 +464,9 @@ def evaluate_sati(
                             f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
                         )
 
-                if use_wandb and i % wandb_log_freq == 0 and wandb_log_freq != 0:
-                    wandb.log(data_log, commit=True)
+                if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
+                    for key, val in data_log.items():
+                        mlflow.log_metric(key, val, step=global_step)
 
             if image_log_freq != 0 and i % image_log_freq == 0:
                 visualize_diffusion_action_distribution(
@@ -473,7 +483,7 @@ def evaluate_sati(
                     epoch,
                     num_images_log,
                     30,
-                    use_wandb,
+                    use_mlflow,
                 )
 
 
@@ -577,7 +587,7 @@ def visualize_diffusion_action_distribution(
     epoch: int,
     num_images_log: int,
     num_samples: int = 30,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
 ):
     """Plot samples from the exploration model."""
 
@@ -602,8 +612,6 @@ def visualize_diffusion_action_distribution(
     batch_obs_images = batch_obs_images[:num_images_log]
     batch_action_label = batch_action_label[:num_images_log]
     batch_goal_pos = batch_goal_pos[:num_images_log]
-
-    wandb_list = []
 
     pred_horizon = batch_action_label.shape[1]
     action_dim = batch_action_label.shape[2]
@@ -695,7 +703,6 @@ def visualize_diffusion_action_distribution(
 
         save_path = os.path.join(visualize_path, f"sample_{i}.png")
         plt.savefig(save_path)
-        wandb_list.append(wandb.Image(save_path))
         plt.close(fig)
-    if len(wandb_list) > 0 and use_wandb:
-        wandb.log({f"{eval_type}_action_samples": wandb_list}, commit=False)
+    if use_mlflow:
+        mlflow.log_artifact(save_path, artifact_path=f"{eval_type}/action_samples")

@@ -3,7 +3,7 @@ from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-import wandb
+import mlflow
 
 from visualnav_transformer.train.vint_train.visualizing.visualize_utils import (
     numpy_to_img,
@@ -19,7 +19,7 @@ def visualize_dist_pred(
     save_folder: str,
     epoch: int,
     num_images_preds: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
     display: bool = False,
     rounding: int = 4,
     dist_error_threshold: float = 3.0,
@@ -35,7 +35,7 @@ def visualize_dist_pred(
         eval_type (string): {data_type}_{eval_type} (e.g. recon_train, gs_test, etc.)
         epoch (int): current epoch number
         num_images_preds (int): number of images to visualize
-        use_wandb (bool): whether to use wandb to log the images
+        use_mlflow (bool): whether to use mlflow to log the images
         save_folder (str): folder to save the images. If None, will not save the images
         display (bool): whether to display the images
         rounding (int): number of decimal places to round the distance predictions and labels
@@ -57,7 +57,6 @@ def visualize_dist_pred(
         == len(batch_dist_labels)
     )
     batch_size = batch_obs_images.shape[0]
-    wandb_list = []
     for i in range(min(batch_size, num_images_preds)):
         dist_pred = np.round(batch_dist_preds[i], rounding)
         dist_label = np.round(batch_dist_labels[i], rounding)
@@ -66,7 +65,8 @@ def visualize_dist_pred(
 
         save_path = None
         if save_folder is not None:
-            save_path = os.path.join(visualize_path, f"{i}.png")
+            # Include batch index and epoch in filename to avoid overwriting
+            save_path = os.path.join(visualize_path, f"epoch{epoch}_batch{str(i).zfill(4)}_sample{i}.png")
         text_color = "black"
         if abs(dist_pred - dist_label) > dist_error_threshold:
             text_color = "red"
@@ -80,11 +80,8 @@ def visualize_dist_pred(
             save_path,
             display,
         )
-        if use_wandb:
-            wandb_list.append(wandb.Image(save_path))
-    if use_wandb:
-        wandb.log({f"{eval_type}_dist_prediction": wandb_list}, commit=False)
-
+        if use_mlflow:
+            mlflow.log_artifact(save_path, artifact_path=f"{eval_type}/dist_prediction")
 
 def visualize_dist_pairwise_pred(
     batch_obs_images: np.ndarray,
@@ -98,7 +95,7 @@ def visualize_dist_pairwise_pred(
     save_folder: str,
     epoch: int,
     num_images_preds: int = 8,
-    use_wandb: bool = True,
+    use_mlflow: bool = True,
     display: bool = False,
     rounding: int = 4,
 ):
@@ -117,7 +114,7 @@ def visualize_dist_pairwise_pred(
         save_folder (str): folder to save the images. If None, will not save the images
         epoch (int): current epoch number
         num_images_preds (int): number of images to visualize
-        use_wandb (bool): whether to use wandb to log the images
+        use_mlflow (bool): whether to use mlflow to log the images
         display (bool): whether to display the images
         rounding (int): number of decimal places to round the distance predictions and labels
     """
@@ -140,7 +137,6 @@ def visualize_dist_pairwise_pred(
         == len(batch_far_labels)
     )
     batch_size = batch_obs_images.shape[0]
-    wandb_list = []
     for i in range(min(batch_size, num_images_preds)):
         close_dist_pred = np.round(batch_close_preds[i], rounding)
         far_dist_pred = np.round(batch_far_preds[i], rounding)
@@ -168,11 +164,8 @@ def visualize_dist_pairwise_pred(
             save_path,
             display,
         )
-        if use_wandb:
-            wandb_list.append(wandb.Image(save_path))
-    if use_wandb:
-        wandb.log({f"{eval_type}_pairwise_classification": wandb_list}, commit=False)
-
+        if use_mlflow:
+            mlflow.log_artifact(save_path, artifact_path=f"{eval_type}/pairwise_classification")
 
 def display_distance_pred(
     imgs: list,
