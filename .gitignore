@@ -17,3 +17,7 @@ client_configuration_token_*.tok.zip
 # OS or editor artifacts
 *.swp
 *~
+
+visualnav_transformer/train/logs/
+NVIDIA-Linux-x86_64-525.147.05-grid.run
+visualnav_transformer/train/vint_train.egg-info/
