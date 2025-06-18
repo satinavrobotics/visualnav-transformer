@@ -71,8 +71,8 @@ feature_dataset = FeatureDataset(
 sample = feature_dataset[0]
 
 # Visualization for a single sample (dummy predictions for demonstration)
-obs_image = to_numpy(sample['obs_image']).reshape(1, *sample['obs_image'].shape)
-goal_image = to_numpy(sample['goal_image']).reshape(1, *sample['goal_image'].shape)
+obs_image = to_numpy(sample[0]).reshape(1, *sample[0].shape)   # obs_features
+goal_image = to_numpy(sample[1]).reshape(1, *sample[1].shape)  # goal_feature
 dist_pred = torch.rand(1) * 10  # Dummy prediction
 dist_label = torch.rand(1) * 10  # Dummy label
 
