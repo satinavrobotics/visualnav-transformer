@@ -3,9 +3,10 @@ run_name: dino_cache
 
 # DINO cache parameters
 dino_model_type: large  # Options: small, base, large, giant
-feature_chunk_size: 200  # Number of features in each chunk
-feature_chunk_overlap: 10  # Overlap between consecutive chunks
-min_trajectory_length: 10  # Minimum number of images in a trajectory to process
+# Meter-based chunking parameters (replaces frame-based parameters)
+max_chunk_distance_m: 10.0  # Maximum distance per chunk in meters
+overlap_distance_m: 1.0     # Overlap distance between chunks in meters
+min_chunk_distance_m: 0.3   # Minimum distance for a chunk in meters
 batch_size: 32  # Batch size for feature extraction
 keep_pt_files: True  # Keep the .pt files after creating the LMDB cache
 

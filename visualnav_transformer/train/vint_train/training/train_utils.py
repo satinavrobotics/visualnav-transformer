@@ -289,7 +289,7 @@ def train(
 
         obs_images = torch.split(obs_image, 3, dim=1)
         viz_obs_image = TF.resize(obs_images[-1], VISUALIZATION_IMAGE_SIZE)
-        obs_images = [transform(obs_image).to(device) for obs_image in obs_images]
+        obs_images = [transform(f).to(device) for f in obs_images]
         obs_image = torch.cat(obs_images, dim=1)
 
         viz_goal_image = TF.resize(goal_image, VISUALIZATION_IMAGE_SIZE)
@@ -431,7 +431,7 @@ def evaluate(
 
             obs_images = torch.split(obs_image, 3, dim=1)
             viz_obs_image = TF.resize(obs_images[-1], VISUALIZATION_IMAGE_SIZE)
-            obs_images = [transform(obs_image).to(device) for obs_image in obs_images]
+            obs_images = [transform(f).to(device) for f in obs_images]
             obs_image = torch.cat(obs_images, dim=1)
 
             viz_goal_image = TF.resize(goal_image, VISUALIZATION_IMAGE_SIZE)
@@ -821,11 +821,63 @@ def train_nomad(
             if image_log_freq != 0 and i % image_log_freq == 0:
                 # When using pre-built DINO features, we need to use the visualization dataset
                 if using_prebuilt_dino and viz_dataloader is not None:
-                    try:
-                        # Get visualization batch
-                        viz_batch = next(iter(viz_dataloader))
+                    # now this never StopIteration’s
+                    viz_batch = next(viz_dataloader)
+                    # VizHybridDataset returns 9 items (including features)
+                    if len(viz_batch) == 9:
+                        # New VizHybridDataset format
+                        (viz_obs_img, viz_goal_img, viz_actions, viz_distance,
+                            viz_goal_pos, viz_dataset_idx, viz_action_mask,
+                            viz_obs_features, viz_goal_features) = viz_batch
 
-                        # Unpack the visualization batch
+                        # Move to device
+                        viz_obs_img = viz_obs_img.to(device)
+                        viz_goal_img = viz_goal_img.to(device)
+                        viz_goal_pos = viz_goal_pos.to(device)
+                        viz_obs_features = viz_obs_features.to(device)  # [batch, 4, 1024]
+                        viz_goal_features = viz_goal_features.to(device)  # [batch, 1024]
+
+                        # Reshape features to match model input format
+                        batch_size = viz_obs_features.shape[0]
+                        viz_obs_features_flat = viz_obs_features.view(batch_size, -1)  # [batch, 4*1024]
+                        viz_goal_features_flat = viz_goal_features  # [batch, 1024]
+
+                        # Extract visualization images for display
+                        obs_images = torch.split(viz_obs_img, 3, dim=1)
+                        viz_obs_images = obs_images[-1]  # Last context frame
+
+                        # Call visualization function with ALIGNED data
+                        visualize_diffusion_action_distribution(
+                            ema_model.averaged_model,
+                            noise_scheduler,
+                            viz_obs_features_flat,  # Use viz features for model
+                            viz_goal_features_flat,  # Use viz features for model
+                            viz_obs_images,  # Use viz images for display
+                            viz_goal_img,  # Use viz images for display
+                            viz_actions,  # Use viz actions
+                            viz_distance,  # Use viz distance
+                            viz_goal_pos,  # Use viz goal positions
+                            device,
+                            "train",
+                            project_folder,
+                            epoch,
+                            min(num_images_log, len(viz_obs_images)),
+                            30,
+                            use_mlflow,
+                            # Additional parameters
+                            i=i,
+                            num_batches=num_batches,
+                            loggers=loggers,
+                            dataset_index=viz_dataset_idx,
+                            mlflow_log_freq=mlflow_log_freq,
+                            print_log_freq=print_log_freq,
+                            image_log_freq=image_log_freq,
+                            use_latest=True,
+                        )
+                    else:
+                        # Fallback to old ViNT_Dataset format
+                        print("Warning: Using old ViNT_Dataset format for visualization")
+                        # Unpack the visualization batch (old format)
                         viz_obs_img, viz_goal_img, viz_actions, viz_distance, viz_goal_pos, viz_dataset_idx, viz_action_mask = viz_batch
 
                         # Move to device
@@ -837,12 +889,12 @@ def train_nomad(
                         obs_images = torch.split(viz_obs_img, 3, dim=1)
                         viz_obs_images = obs_images[-1]
 
-                        # Call visualization function with visualization images
+                        # Call visualization function with visualization images (old way)
                         visualize_diffusion_action_distribution(
                             ema_model.averaged_model,
                             noise_scheduler,
-                            batch_obs_images,
-                            batch_goal_images,
+                            batch_obs_images,  # Use training features (misaligned)
+                            batch_goal_images,  # Use training features (misaligned)
                             viz_obs_images,  # Use visualization images
                             viz_goal_img,  # Use visualization images
                             actions,  # This is batch_action_label
@@ -865,9 +917,6 @@ def train_nomad(
                             image_log_freq=image_log_freq,
                             use_latest=True,
                         )
-                    except Exception as e:
-                        print(f"Error during visualization: {e}")
-                        # Continue training even if visualization fails
                 else:
                     # Original visualization code
                     visualize_diffusion_action_distribution(
@@ -900,27 +949,45 @@ def train_nomad(
 
 
              # === 🧹 MEMORY CLEANUP AFTER BATCH ===
-            # Create a list of variables to delete
-            vars_to_delete = [
-                obs_image, goal_image, actions, distance, goal_pos, dataset_idx,
-                batch_obs_images, batch_goal_images,
-                obsgoal_cond, dist_pred, noise, timesteps, noisy_action,
-                noise_pred, naction, deltas, ndeltas
-            ]
+            # Create a list of variables to delete - check existence before adding
+            vars_to_delete = []
+            
+            # Core training variables
+            if 'obs_image' in locals():
+                vars_to_delete.extend([obs_image, goal_image, actions, distance, goal_pos, dataset_idx, action_mask])
+            
+            if 'batch_obs_images' in locals():
+                vars_to_delete.extend([batch_obs_images, batch_goal_images])
+            
+            if 'obsgoal_cond' in locals():
+                vars_to_delete.extend([obsgoal_cond, dist_pred, noise, timesteps, noisy_action, noise_pred, naction, deltas, ndeltas])
+            
+            if 'loss' in locals():
+                vars_to_delete.extend([loss, dist_loss, diffusion_loss])
+            
+            if 'goal_mask' in locals():
+                vars_to_delete.extend([goal_mask, B])
 
-            # Add optional variables if they exist
-            if not using_prebuilt_dino:
+            # Optional variables with existence checks
+            if not using_prebuilt_dino and 'obs_images' in locals():
                 vars_to_delete.append(obs_images)
 
-            if batch_viz_obs_images is not None:
-                vars_to_delete.append(batch_viz_obs_images)
+            # Visualization variables with proper scope checking
+            viz_vars = ['batch_viz_obs_images', 'batch_viz_goal_images', 'viz_batch', 'viz_obs_img', 
+                       'viz_goal_img', 'viz_actions', 'viz_distance', 'viz_goal_pos', 'viz_dataset_idx', 
+                       'viz_action_mask', 'viz_obs_features', 'viz_goal_features', 'viz_obs_features_flat', 
+                       'viz_goal_features_flat']
+            
+            for var_name in viz_vars:
+                if var_name in locals():
+                    vars_to_delete.append(locals()[var_name])
 
-            if batch_viz_goal_images is not None:
-                vars_to_delete.append(batch_viz_goal_images)
-
-            # Delete all variables
+            # Delete all variables safely
             for var in vars_to_delete:
-                del var
+                try:
+                    del var
+                except (NameError, UnboundLocalError):
+                    pass  # Variable doesn't exist or already deleted
 
             # More aggressive memory cleanup
             torch.cuda.empty_cache()  # 🧹 clear cached GPU memory
@@ -1099,14 +1166,14 @@ def evaluate_nomad(
             assert naction.shape[-1] == 2, "action dim must be 2"
 
             # Sample noise to add to actions
-            noise = torch.randn(naction.shape, device=device)
+            noise = torch.randn(naaction.shape, device=device)
 
             # Sample a diffusion iteration for each data point
             timesteps = torch.randint(
                 0, noise_scheduler.config.num_train_timesteps, (B,), device=device
             ).long()
 
-            noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
+            noisy_actions = noise_scheduler.add_noise(naaction, noise, timesteps)
 
             ### RANDOM MASK ERROR ###
             # Predict the noise residual
@@ -1188,11 +1255,64 @@ def evaluate_nomad(
             if image_log_freq != 0 and i % image_log_freq == 0:
                 # When using pre-built DINO features, we need to use the visualization dataset
                 if using_prebuilt_dino and viz_dataloader is not None:
-                    try:
-                        # Get visualization batch
-                        viz_batch = next(iter(viz_dataloader))
+                    # Get visualization batch from VizHybridDataset
+                    viz_batch = next(viz_dataloader)
 
-                        # Unpack the visualization batch
+                    # VizHybridDataset returns 9 items (including features)
+                    if len(viz_batch) == 9:
+                        # New VizHybridDataset format
+                        (viz_obs_img, viz_goal_img, viz_actions, viz_distance,
+                            viz_goal_pos, viz_dataset_idx, viz_action_mask,
+                            viz_obs_features, viz_goal_features) = viz_batch
+
+                        # Move to device
+                        viz_obs_img = viz_obs_img.to(device)
+                        viz_goal_img = viz_goal_img.to(device)
+                        viz_goal_pos = viz_goal_pos.to(device)
+                        viz_obs_features = viz_obs_features.to(device)  # [batch, 4, 1024]
+                        viz_goal_features = viz_goal_features.to(device)  # [batch, 1024]
+
+                        # Reshape features to match model input format
+                        batch_size = viz_obs_features.shape[0]
+                        viz_obs_features_flat = viz_obs_features.view(batch_size, -1)  # [batch, 4*1024]
+                        viz_goal_features_flat = viz_goal_features  # [batch, 1024]
+
+                        # Extract visualization images for display
+                        obs_images = torch.split(viz_obs_img, 3, dim=1)
+                        viz_obs_images = obs_images[-1]  # Last context frame
+
+                        # Call visualization function with ALIGNED data
+                        visualize_diffusion_action_distribution(
+                            ema_model,
+                            noise_scheduler,
+                            viz_obs_features_flat,  # Use viz features for model
+                            viz_goal_features_flat,  # Use viz features for model
+                            viz_obs_images,  # Use viz images for display
+                            viz_goal_img,  # Use viz images for display
+                            viz_actions,  # Use viz actions
+                            viz_distance,  # Use viz distance
+                            viz_goal_pos,  # Use viz goal positions
+                            device,
+                            eval_type,
+                            project_folder,
+                            epoch,
+                            min(num_images_log, len(viz_obs_images)),
+                            30,
+                            use_mlflow,
+                            # Additional parameters
+                            i=i,
+                            num_batches=num_batches,
+                            loggers=loggers,
+                            dataset_index=viz_dataset_idx,
+                            mlflow_log_freq=mlflow_log_freq,
+                            print_log_freq=print_log_freq,
+                            image_log_freq=image_log_freq,
+                            use_latest=False,
+                        )
+                    else:
+                        # Fallback to old ViNT_Dataset format
+                        print("Warning: Using old ViNT_Dataset format for visualization")
+                        # Unpack the visualization batch (old format)
                         viz_obs_img, viz_goal_img, viz_actions, viz_distance, viz_goal_pos, viz_dataset_idx, viz_action_mask = viz_batch
 
                         # Move to device
@@ -1204,12 +1324,12 @@ def evaluate_nomad(
                         obs_images = torch.split(viz_obs_img, 3, dim=1)
                         viz_obs_images = obs_images[-1]
 
-                        # Call visualization function with visualization images
+                        # Call visualization function with visualization images (old way)
                         visualize_diffusion_action_distribution(
                             ema_model,
                             noise_scheduler,
-                            batch_obs_images,
-                            batch_goal_images,
+                            batch_obs_images,  # Use training features (misaligned)
+                            batch_goal_images,  # Use training features (misaligned)
                             viz_obs_images,  # Use visualization images
                             viz_goal_img,  # Use visualization images
                             actions,  # This is batch_action_label
@@ -1232,9 +1352,7 @@ def evaluate_nomad(
                             image_log_freq=image_log_freq,
                             use_latest=False,
                         )
-                    except Exception as e:
-                        print(f"Error during visualization: {e}")
-                        # Continue evaluation even if visualization fails
+
                 else:
                     # Original visualization code
                     visualize_diffusion_action_distribution(
@@ -1266,30 +1384,45 @@ def evaluate_nomad(
                     )
 
                 # === 🧹 MEMORY CLEANUP AFTER BATCH ===
-                # Create a list of variables to delete
-                vars_to_delete = [
-                    obs_image, goal_image, actions, distance, goal_pos, dataset_idx,
-                    batch_obs_images, batch_goal_images, rand_goal_mask, goal_mask, no_mask,
-                    rand_mask_cond, obsgoal_cond, goal_mask_cond, noise, timesteps, noisy_actions,
-                    rand_mask_noise_pred, no_mask_noise_pred, goal_mask_noise_pred
-                ]
+                # Create a list of variables to delete - check existence before adding
+                vars_to_delete = []
+                
+                # Core training variables
+                if 'obs_image' in locals():
+                    vars_to_delete.extend([obs_image, goal_image, actions, distance, goal_pos, dataset_idx, action_mask])
+                
+                if 'batch_obs_images' in locals():
+                    vars_to_delete.extend([batch_obs_images, batch_goal_images])
+                
+                if 'obsgoal_cond' in locals():
+                    vars_to_delete.extend([obsgoal_cond, dist_pred, noise, timesteps, noisy_actions, noise_pred, naction, deltas, ndeltas])
+                
+                if 'loss' in locals():
+                    vars_to_delete.extend([loss, dist_loss, diffusion_loss])
+                
+                if 'goal_mask' in locals():
+                    vars_to_delete.extend([goal_mask, B])
 
-                # Add optional variables if they exist
+                # Optional variables with existence checks
                 if not using_prebuilt_dino and 'obs_images' in locals():
                     vars_to_delete.append(obs_images)
 
-                if 'batch_viz_obs_images' in locals() and batch_viz_obs_images is not None:
-                    vars_to_delete.append(batch_viz_obs_images)
+                # Visualization variables with proper scope checking
+                viz_vars = ['batch_viz_obs_images', 'batch_viz_goal_images', 'viz_batch', 'viz_obs_img', 
+                           'viz_goal_img', 'viz_actions', 'viz_distance', 'viz_goal_pos', 'viz_dataset_idx', 
+                           'viz_action_mask', 'viz_obs_features', 'viz_goal_features', 'viz_obs_features_flat', 
+                           'viz_goal_features_flat']
+                
+                for var_name in viz_vars:
+                    if var_name in locals():
+                        vars_to_delete.append(locals()[var_name])
 
-                if 'batch_viz_goal_images' in locals() and batch_viz_goal_images is not None:
-                    vars_to_delete.append(batch_viz_goal_images)
-
-                # Delete all variables
+                # Delete all variables safely
                 for var in vars_to_delete:
                     try:
                         del var
-                    except:
-                        pass  # Ignore if variable doesn't exist
+                    except (NameError, UnboundLocalError):
+                        pass  # Variable doesn't exist or already deleted
 
                 # More aggressive memory cleanup
                 torch.cuda.empty_cache()  # 🧹 clear cached GPU memory

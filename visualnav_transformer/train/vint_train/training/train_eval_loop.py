@@ -19,6 +19,14 @@ from visualnav_transformer.train.vint_train.training.train_utils import (
     train_nomad,
 )
 
+def infinite_loader(dataloader):
+    """
+    Wrap any DataLoader so that `next(...)` never stops:
+    it re-starts the iterator under the hood.
+    """
+    while True:
+        for batch in dataloader:
+            yield batch
 
 def train_eval_loop(
     train_model: bool,
@@ -206,6 +214,7 @@ def train_eval_loop_nomad(
     # Only load visualization datasets if using pre-built DINO features
     train_viz_dataloader = None
     test_viz_dataloaders = {}
+    
 
     if using_prebuilt_dino:
         print("Loading visualization datasets for pre-built DINO features")
@@ -255,36 +264,38 @@ def train_eval_loop_nomad(
             print(f"Loading train visualization dataset from: {train_viz_folder}")
 
             try:
-                train_viz_dataset = ViNT_Dataset(
-                    data_folder=train_viz_folder,
-                    split="train",
-                    split_ratio=1.0,  # Use all available trajectories in train_viz
-                    dataset_name=f"{viz_dataset_name}_train_viz",  # Unique name for viz dataset
-                    dataset_index=0,  # Use 0 for visualization
-                    image_size=first_dataset.image_size,
-                    waypoint_spacing=viz_dataset_config.get("waypoint_spacing", first_dataset.waypoint_spacing),
-                    metric_waypoint_spacing=viz_dataset_config.get("metric_waypoint_spacing", first_dataset.metric_waypoint_spacing),
-                    min_dist_cat=first_dataset.min_dist_cat,
-                    max_dist_cat=first_dataset.max_dist_cat,
-                    min_action_distance=first_dataset.min_action_distance,
-                    max_action_distance=first_dataset.max_action_distance,
-                    negative_mining=viz_dataset_config.get("negative_mining", first_dataset.negative_mining),
-                    len_traj_pred=first_dataset.len_traj_pred,
-                    learn_angle=first_dataset.learn_angle,
-                    context_size=first_dataset.context_size,
-                    end_slack=viz_dataset_config.get("end_slack", 0),
-                    goals_per_obs=viz_dataset_config.get("goals_per_obs", 1),
-                    normalize=first_dataset.normalize,
-                    build_image_cache=False  # Skip LMDB cache building for visualization dataset
-                )
+                # Import VizHybridDataset for pre-built DINO features
+                from visualnav_transformer.train.vint_train.data.viz_hybrid_dataset import VizHybridDataset
+
+                # Check if DINO cache exists
+                train_dino_cache_folder = os.path.join(train_viz_folder, "dino_cache_large")
+                if not os.path.exists(train_dino_cache_folder):
+                    print(f"Warning: DINO cache not found at {train_dino_cache_folder}")
+                    train_viz_dataset = None
+                else:
+                    train_viz_dataset = VizHybridDataset(
+                        viz_folder=train_viz_folder,
+                        dino_cache_folder=train_dino_cache_folder,
+                        image_size=first_dataset.image_size,
+                        context_size=first_dataset.context_size,
+                        waypoint_spacing=viz_dataset_config.get("waypoint_spacing", first_dataset.waypoint_spacing),
+                        len_traj_pred=first_dataset.len_traj_pred,
+                        learn_angle=first_dataset.learn_angle,
+                        normalize=first_dataset.normalize,
+                        metric_waypoint_spacing=viz_dataset_config.get("metric_waypoint_spacing", first_dataset.metric_waypoint_spacing)
+                    )
 
                 # Log detailed information about the loaded dataset
-                print(f"✓ Train visualization dataset loaded successfully:")
-                print(f"  - Dataset folder: {train_viz_folder}")
-                print(f"  - Number of trajectories: {len(train_viz_dataset.traj_names)}")
-                print(f"  - Number of samples: {len(train_viz_dataset)}")
-                print(f"  - Image LMDB cache: {'DISABLED' if not train_viz_dataset.build_image_cache else 'ENABLED'} (loads images directly from filesystem)")
-                print(f"  - Trajectory names: {[os.path.basename(traj) for traj in train_viz_dataset.traj_names[:5]]}{'...' if len(train_viz_dataset.traj_names) > 5 else ''}")
+                if train_viz_dataset is not None:
+                    print(f"✓ Train VizHybridDataset loaded successfully:")
+                    print(f"  - Dataset folder: {train_viz_folder}")
+                    print(f"  - DINO cache folder: {train_dino_cache_folder}")
+                    print(f"  - Number of trajectories: {len(train_viz_dataset.traj_names)}")
+                    print(f"  - Number of samples: {len(train_viz_dataset)}")
+                    print(f"  - Image + Feature alignment: ENABLED")
+                    print(f"  - Trajectory names: {[os.path.basename(traj) for traj in train_viz_dataset.traj_names[:5]]}{'...' if len(train_viz_dataset.traj_names) > 5 else ''}")
+                else:
+                    print(f"✗ Train VizHybridDataset not loaded (DINO cache missing)")
 
             except Exception as e:
                 print(f"✗ Warning: Failed to load train visualization dataset: {e}")
@@ -300,6 +311,8 @@ def train_eval_loop_nomad(
                     num_workers=0,  # Use 0 workers to avoid issues
                     pin_memory=True
                 )
+                # wrap it so next() never raises StopIteration
+                train_viz_dataloader = infinite_loader(train_viz_dataloader)
                 print(f"Created train visualization dataloader with {len(train_viz_dataset)} samples")
             else:
                 train_viz_dataloader = None
@@ -310,36 +323,35 @@ def train_eval_loop_nomad(
             print(f"Loading test visualization dataset from: {test_viz_folder}")
 
             try:
-                test_viz_dataset = ViNT_Dataset(
-                    data_folder=test_viz_folder,
-                    split="train",  # Use "train" split but load from test_viz folder
-                    split_ratio=1.0,  # Use all trajectories for visualization
-                    dataset_name=f"{viz_dataset_name}_test_viz",  # Unique name for viz dataset
-                    dataset_index=0,  # Use 0 for visualization
-                    image_size=first_dataset.image_size,
-                    waypoint_spacing=viz_dataset_config.get("waypoint_spacing", first_dataset.waypoint_spacing),
-                    metric_waypoint_spacing=viz_dataset_config.get("metric_waypoint_spacing", first_dataset.metric_waypoint_spacing),
-                    min_dist_cat=first_dataset.min_dist_cat,
-                    max_dist_cat=first_dataset.max_dist_cat,
-                    min_action_distance=first_dataset.min_action_distance,
-                    max_action_distance=first_dataset.max_action_distance,
-                    negative_mining=viz_dataset_config.get("negative_mining", first_dataset.negative_mining),
-                    len_traj_pred=first_dataset.len_traj_pred,
-                    learn_angle=first_dataset.learn_angle,
-                    context_size=first_dataset.context_size,
-                    end_slack=viz_dataset_config.get("end_slack", 0),
-                    goals_per_obs=viz_dataset_config.get("goals_per_obs", 1),
-                    normalize=first_dataset.normalize,
-                    build_image_cache=False  # Skip LMDB cache building for visualization dataset
-                )
+                # Check if DINO cache exists for test visualization
+                test_dino_cache_folder = os.path.join(test_viz_folder, "dino_cache_large")
+                if not os.path.exists(test_dino_cache_folder):
+                    print(f"Warning: DINO cache not found at {test_dino_cache_folder}")
+                    test_viz_dataset = None
+                else:
+                    test_viz_dataset = VizHybridDataset(
+                        viz_folder=test_viz_folder,
+                        dino_cache_folder=test_dino_cache_folder,
+                        image_size=first_dataset.image_size,
+                        context_size=first_dataset.context_size,
+                        waypoint_spacing=viz_dataset_config.get("waypoint_spacing", first_dataset.waypoint_spacing),
+                        len_traj_pred=first_dataset.len_traj_pred,
+                        learn_angle=first_dataset.learn_angle,
+                        normalize=first_dataset.normalize,
+                        metric_waypoint_spacing=viz_dataset_config.get("metric_waypoint_spacing", first_dataset.metric_waypoint_spacing)
+                    )
 
                 # Log detailed information about the loaded dataset
-                print(f"✓ Test visualization dataset loaded successfully:")
-                print(f"  - Dataset folder: {test_viz_folder}")
-                print(f"  - Number of trajectories: {len(test_viz_dataset.traj_names)}")
-                print(f"  - Number of samples: {len(test_viz_dataset)}")
-                print(f"  - Image LMDB cache: {'DISABLED' if not test_viz_dataset.build_image_cache else 'ENABLED'} (loads images directly from filesystem)")
-                print(f"  - Trajectory names: {[os.path.basename(traj) for traj in test_viz_dataset.traj_names[:5]]}{'...' if len(test_viz_dataset.traj_names) > 5 else ''}")
+                if test_viz_dataset is not None:
+                    print(f"✓ Test VizHybridDataset loaded successfully:")
+                    print(f"  - Dataset folder: {test_viz_folder}")
+                    print(f"  - DINO cache folder: {test_dino_cache_folder}")
+                    print(f"  - Number of trajectories: {len(test_viz_dataset.traj_names)}")
+                    print(f"  - Number of samples: {len(test_viz_dataset)}")
+                    print(f"  - Image + Feature alignment: ENABLED")
+                    print(f"  - Trajectory names: {[os.path.basename(traj) for traj in test_viz_dataset.traj_names[:5]]}{'...' if len(test_viz_dataset.traj_names) > 5 else ''}")
+                else:
+                    print(f"✗ Test VizHybridDataset not loaded (DINO cache missing)")
 
             except Exception as e:
                 print(f"✗ Warning: Failed to load test visualization dataset: {e}")
@@ -356,6 +368,7 @@ def train_eval_loop_nomad(
                         num_workers=0,  # Use 0 workers to avoid issues
                         pin_memory=True
                     )
+                    test_viz_dataloaders[dataset_type] = infinite_loader(test_viz_dataloaders[dataset_type])
                 print(f"Created test visualization dataloader with {len(test_viz_dataset)} samples")
             else:
                 print("Test visualization dataloader not created due to dataset loading failure")
@@ -397,7 +410,6 @@ def train_eval_loop_nomad(
                 alpha=alpha,
                 viz_dataloader=train_viz_dataloader,  # Pass visualization dataloader
             )
-            lr_scheduler.step()
 
         numbered_path = os.path.join(project_folder, f"ema_{epoch}.pth")
         torch.save(ema_model.averaged_model.state_dict(), numbered_path)
@@ -484,3 +496,5 @@ def count_parameters(model):
     # print(table)
     print(f"Total Trainable Params: {total_params/1e6:.2f}M")
     return total_params
+
+
