@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from efficientnet_pytorch import EfficientNet
 
-from visualnav_transformer.train.vint_train.models.vint.self_attention import (
+from visualnav_transformer.train.vint_train.models.nomad.self_attention import (
     PositionalEncoding,
 )
 

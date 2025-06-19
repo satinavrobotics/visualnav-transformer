@@ -4,7 +4,7 @@ run_name: dino_cache
 # DINO cache parameters
 dino_model_type: large  # Options: small, base, large, giant
 # Meter-based chunking parameters (replaces frame-based parameters)
-max_chunk_distance_m: 10.0  # Maximum distance per chunk in meters
+max_chunk_distance_m: 50.0  # Maximum distance per chunk in meters
 overlap_distance_m: 1.0     # Overlap distance between chunks in meters
 min_chunk_distance_m: 0.3   # Minimum distance for a chunk in meters
 batch_size: 32  # Batch size for feature extraction
@@ -19,7 +19,6 @@ seed: 0
 normalize: True
 
 # context
-context_type: temporal
 context_size: 3
 
 # distance bounds for distance and action and distance predictions
@@ -36,3 +35,11 @@ learn_angle: False
 
 # dataset specific parameters
 image_size: [320, 240] # width, height
+
+
+
+###########
+
+max_goal_distance_meters: 5.0
+
+

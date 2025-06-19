@@ -138,3 +138,35 @@ def img_path_to_data(
     # return transform_images(Image.open(path), transform, image_resize_size, aspect_ratio)
     with Image.open(path) as img:
         return resize_and_aspect_crop(img, image_resize_size)
+    
+
+def calculate_distance_meters(pos1, pos2):
+    """Calculate Euclidean distance between two positions in meters."""
+    return np.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
+
+
+def find_max_goal_distance_meters(traj_data, curr_time, max_distance_meters):
+    """
+    Find the maximum goal distance in frames that corresponds to max_distance_meters.
+
+    Args:
+        traj_data: Trajectory data with position information
+        curr_time: Current time index
+        max_distance_meters: Maximum allowed distance in meters
+
+    Returns:
+        Maximum goal distance in frames
+    """
+    curr_pos = traj_data["position"][curr_time]
+    max_goal_frames = 0
+
+    # Search forward from current position
+    for future_time in range(curr_time + 1, len(traj_data["position"])):
+        future_pos = traj_data["position"][future_time]
+        distance_m = calculate_distance_meters(curr_pos, future_pos)
+
+        if distance_m >= max_distance_meters:
+            # Stop when we exceed the distance limit
+            break
+        max_goal_frames = future_time - curr_time
+    return max_goal_frames
