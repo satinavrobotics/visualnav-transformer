@@ -40,6 +40,7 @@ image_size: [320, 240] # width, height
 
 ###########
 
-max_goal_distance_meters: 5.0
+min_goal_distance_meters: 0.0
+max_goal_distance_meters: 10.0
 
 
