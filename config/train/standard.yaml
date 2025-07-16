@@ -1,0 +1,21 @@
+# VisuaNav Transformer Training Configuration - Standard Version
+# Uses EfficientNet-B0 encoder without prebuilt features
+# Inherits most settings from defaults.yaml
+
+project_name: visualnav_transformer
+run_name: standard
+
+# Override specific settings for standard training
+batch_size: 256
+epochs: 100
+num_workers: 12
+warmup: True
+
+# Gradient clipping for stable training
+clipping: True
+min_norm: -1.0
+max_norm: 1.0
+
+# Standard model configuration (EfficientNet-B0, no prebuilt features)
+obs_encoder: efficientnet-b0
+prebuilt_dino: False

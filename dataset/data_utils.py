@@ -14,6 +14,16 @@ IMAGE_ASPECT_RATIO = (
 )  # all images are centered cropped to a 4:3 aspect ratio in training
 
 
+def infinite_loader(dataloader):
+    """
+    Wrap any DataLoader so that `next(...)` never stops:
+    it re-starts the iterator under the hood.
+    """
+    while True:
+        for batch in dataloader:
+            yield batch
+
+
 def get_data_path(data_folder: str, f: str, time: int, data_type: str = "image"):
     data_ext = {
         "image": ".jpg",

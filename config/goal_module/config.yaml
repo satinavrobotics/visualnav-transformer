@@ -1,0 +1,109 @@
+# GMC Unsupervised Learning Configuration
+# Single comprehensive configuration file for all experiment settings
+
+# =============================================================================
+# EXPERIMENT SETTINGS
+# =============================================================================
+experiment:
+  # Basic experiment configuration
+  # Available scenarios: "dummy_goal"
+  scenario: "pogany"
+  model: "gmc"
+  seed: 0
+  cuda: true
+  exp_id: null
+  
+  # Experiment stages:
+  # - 'train_model': Train the GMC model
+  # - 'evaluate_dca': Evaluate using Delaunay Component Analysis
+  # - 'train_downstream_classifier': Train downstream classifier
+  # - 'evaluate_downstream_classifier': Evaluate downstream classifier
+  stage: "train_model"
+  
+  # Evaluation modalities [0=features, 1=coord]
+  evaluation_mods: [0, 1]
+
+# =============================================================================
+# MACHINE/ENVIRONMENT SETTINGS
+# =============================================================================
+machine:
+  # Path to the project directory (update this with your actual path)
+  m_path: "/app/visualnav-transformer/goal_module"
+
+# =============================================================================
+# MODEL CONFIGURATION
+# =============================================================================
+model:
+  # Model architecture settings
+  model: "gmc"
+  common_dim: 64
+  latent_dim: 64
+  loss_type: "infonce"  # Alternative: "joints_as_negatives"
+
+# =============================================================================
+# DATASET/SCENARIO CONFIGURATION
+# =============================================================================
+dataset:
+  # Available scenarios: "dummy_goal"
+  scenario: "pogany"
+  data_dir: "./dataset/"
+
+# =============================================================================
+# TRAINING CONFIGURATION
+# =============================================================================
+training:
+  # Dataset parameters
+  data_dir: "./dataset/"
+  batch_size: 4096
+  num_workers: 16
+  
+  # Training hyperparameters
+  epochs: 200
+  learning_rate: 0.001
+  snapshot: 50  # Save checkpoint every N epochs
+  checkpoint: null  # Path to resume from checkpoint
+  temperature: 0.07  # Temperature for contrastive loss (initial value if learnable)
+  learnable_temperature: true  # Whether to make temperature a learnable parameter
+  # When learnable_temperature=true, temperature becomes a trainable parameter
+  # initialized with the temperature value above
+
+# =============================================================================
+# DCA EVALUATION CONFIGURATION
+# =============================================================================
+dca_evaluation:
+  # DCA-specific parameters
+  n_dca_samples: 10000
+  random_seed: 1212
+  batch_size: 64
+  num_workers: 0
+  minimum_cluster_size: 10
+  
+  # Modality configuration for DCA
+  # [0=image, 1=sound, 2=trajectory, 3=label]
+  unique_modality_idxs: [3]  # Modalities with unique representations
+  unique_modality_dims: [10]  # Dimensions for unique modalities
+  partial_modalities_idxs: [[0, 3], [1, 3], [2, 3]]  # Partial modality pairs
+
+# =============================================================================
+# DOWNSTREAM TRAINING CONFIGURATION
+# =============================================================================
+downstream:
+  # Configuration for downstream classifier training
+  batch_size: 64
+  num_workers: 8
+  learning_rate: 0.001
+  epochs: 50
+
+# =============================================================================
+# MLFLOW CONFIGURATION
+# =============================================================================
+mlflow:
+  # MLflow experiment tracking settings
+  experiment_name: "goal_module"
+  tracking_uri: "http://localhost:5003"
+  
+  # Tags to add to runs
+  tags:
+    project: "GMC"
+    task: "unsupervised_learning"
+    framework: "pytorch_lightning"

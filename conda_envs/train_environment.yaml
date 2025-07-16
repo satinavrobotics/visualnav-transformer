@@ -1,12 +1,16 @@
 # conda env create -f conda_envs/train_environment.yaml
+# After creating the environment, install local packages:
+# conda activate sati_train
+# pip install -e .  # Install visualnav_transformer package
+# cd diffusion_policy/diffusion_policy && pip install -e .  # Install diffusion_policy package
 
-name: sati_train
+name: sati_train_310
 channels:
 - defaults
 - pytorch
 dependencies:
-- python=3.8.
-#- cudatoolki=10.
+- python=3.10
+#- cudatoolkit=10.2
 - cudatoolkit
 - numpy
 - matplotlib
@@ -32,4 +36,6 @@ dependencies:
   - positional-encodings
   - mlflow
   - huggingface_hub==0.12.1
+  - pytorch-lightning
+  - random-fourier-features-pytorch
 

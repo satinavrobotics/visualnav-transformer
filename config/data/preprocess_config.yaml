@@ -1,0 +1,27 @@
+# Dataset Preprocessing Configuration
+#
+# NOTE: crop_pixels, upsample_factor, and method are automatically inferred
+# by analyzing the first image in your dataset. You can override them manually if needed.
+#
+# PROCESSING BEHAVIOR:
+# - Output format: All images are saved as JPG (maximum quality) regardless of input format
+# - When downsampling: blur is applied BEFORE scaling (anti-aliasing to prevent artifacts)
+# - When upsampling: blur is applied AFTER scaling (smoothing interpolation artifacts)
+# - With super-resolution: blur may be applied after AI upsampling for final smoothing
+#
+# AUTO BLUR CALCULATION:
+# - For downsampling by factor s: sigma = 0.5 × s, kernel = 2 × ceil(3 × sigma) + 1
+# - For upsampling by factor s: sigma = 0.3 × s, kernel = 2 × ceil(3 × sigma) + 1
+# - Set blur_kernel and blur_sigma to "auto" to enable automatic calculation
+
+# Directory paths (can be overridden by command line arguments)
+input_dir: "/mnt/sati-data/Sati_data_320x240/TartanGround"    # Input directory containing images
+output_dir: "/mnt/sati-data/Sati_data_320x240/TartanGround_320x240"  # Output directory for processed images
+
+# Processing parameters
+target_size: [320, 240]     # Output image size [width, height]
+blur_kernel: "auto"         # Gaussian blur kernel size ("auto" or integer)
+blur_sigma: "auto"          # Gaussian blur sigma ("auto" or float)
+apply_blur: true            # Anti-aliasing for downsampling, smoothing for upsampling
+batch_size: 256                # Number of images to process in each batch (reduced for Docker memory efficiency)
+num_workers: 0               # Number of worker processes for data loading (0 = single process, Docker-safe)

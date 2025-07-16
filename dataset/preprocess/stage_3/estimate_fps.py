@@ -3,7 +3,7 @@ import numpy as np
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 # Path to the same data_config.yaml you already use:
-DATA_CONFIG = "/app/visualnav-transformer/visualnav_transformer/train/vint_train/data/data_config.yaml"
+DATA_CONFIG = "/app/visualnav-transformer/config/data/data_config.yaml"
 # Typical robot speed (m/s) you want to assume for fps estimation:
 ASSUMED_SPEED = 0.5
 # Where to write the output

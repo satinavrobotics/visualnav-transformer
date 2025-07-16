@@ -1,0 +1,23 @@
+# VisuaNav Transformer Training Configuration - Prebuilt DINO Features Version
+# Uses DiNOv2-Large encoder with prebuilt features for faster training
+# Inherits most settings from defaults.yaml
+
+project_name: visualnav_transformer
+run_name: prebuilt_dino
+
+# Override specific settings for prebuilt DINO training
+batch_size: 16384  # Reduced for memory efficiency with prebuilt features
+epochs: 100
+num_workers: 12
+warmup: True
+
+# Gradient clipping for stable training with prebuilt features
+clipping: True
+min_norm: -0.5  # More conservative clipping for prebuilt features
+max_norm: 0.5
+
+# Prebuilt DINO model configuration
+obs_encoder: dinov2-large
+prebuilt_dino: True
+goal_encoder_type: feature_pair  # Valid for prebuilt: feature_pair, position, feature_pair_position
+image_size: [320, 240]  # Higher resolution for DINO features

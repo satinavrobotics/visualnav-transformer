@@ -24,12 +24,11 @@ def setup_gpu(config):
 
 def log_semaphore_count(label=""):
     try:
-        result = subprocess.check_output("ls /dev/shm | grep -c ^sem\\.", shell=True)
-        count = int(result.decode().strip())
-        print(f"[DEBUG] 🔍 /dev/shm semaphore count {label}: {count}")
-        return count
-    except Exception as e:
-        print(f"[WARN] Could not check /dev/shm semaphores: {e}")
+        result = subprocess.check_output(
+            "ls /dev/shm | grep -c ^sem\\.", shell=True, stderr=subprocess.DEVNULL
+        )
+        return int(result.decode().strip())
+    except Exception:
         return -1
 
 def clean_stale_semaphores(threshold=40):

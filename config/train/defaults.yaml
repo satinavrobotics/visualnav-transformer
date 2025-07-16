@@ -1,0 +1,79 @@
+# Default configuration for VisuaNav Transformer training
+# These values are used as fallbacks when not specified in specific configs
+
+# Basic Setup
+project_name: visualnav_transformer
+run_name: default
+use_mlflow: True
+train: True  # Enable/disable training (set to False for evaluation-only)
+seed: 0
+
+# Training Parameters
+batch_size: 256
+epochs: 100
+gpu_ids: [0]
+num_workers: 8
+lr: 1e-4
+optimizer: adamw
+scheduler: "cosine"
+warmup: False
+warmup_epochs: 4
+
+# Gradient Clipping
+clipping: False  # Enable/disable gradient clipping
+min_norm: -1.0   # Minimum gradient norm for clipping
+max_norm: 1.0    # Maximum gradient norm for clipping
+
+# Model Architecture
+model_type: nomad
+vision_encoder: nomad_vint
+encoding_size: 256
+obs_encoder: efficientnet-b0
+prebuilt_dino: False
+goal_encoder_type: image_pair  # Valid for non-prebuilt: image_pair, position, image_pair_position
+mha_num_attention_heads: 4
+mha_num_attention_layers: 4
+mha_ff_dim_factor: 4
+down_dims: [64, 128, 256]
+
+# GoalGMC Configuration
+goal_gmc_config_path: config/goal_module/config.yaml  # Path to GoalGMC config file
+goal_gmc_weights_path: null  # Path to trained GoalGMC weights file (.pth.tar)
+goal_gmc:
+  name: "goal_gmc"
+  common_dim: 64
+  latent_dim: 64
+  loss_type: "infonce"
+  learnable_temperature: false
+  initial_temperature: 0.1
+
+# Diffusion Model
+num_diffusion_iters: 10
+cond_predict_scale: False
+
+# Training Configuration
+goal_mask_prob: 0.5
+normalize: True
+context_size: 3
+alpha: 1e-4
+
+# Distance and Action Bounds
+distance:
+  min_dist_cat: 0
+  max_dist_cat: 20
+action:
+  min_dist_cat: 3
+  max_dist_cat: 20
+
+# Output Parameters
+len_traj_pred: 8
+learn_angle: False
+image_size: [96, 96]
+
+# Logging Configuration
+print_log_freq: 100
+image_log_freq: 1000
+num_images_log: 8
+eval_fraction: 0.25
+mlflow_log_freq: 10
+eval_freq: 1

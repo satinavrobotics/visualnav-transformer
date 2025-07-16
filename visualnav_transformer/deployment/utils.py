@@ -58,12 +58,28 @@ def load_model(
         )
     elif config["model_type"] == "nomad":
         if config["vision_encoder"] == "nomad_vint":
+            # Get GoalGMC configuration
+            goal_gmc_config = config.get("goal_gmc", {
+                "name": "goal_gmc",
+                "common_dim": 64,
+                "latent_dim": 64,
+                "loss_type": "infonce",
+                "learnable_temperature": False,
+                "initial_temperature": 0.1
+            })
+
+            # Get GoalGMC weights path
+            goal_gmc_weights_path = config.get("goal_gmc_weights_path", None)
+
             vision_encoder = NoMaD_ViNT(
                 obs_encoding_size=config["encoding_size"],
                 context_size=config["context_size"],
                 mha_num_attention_heads=config["mha_num_attention_heads"],
                 mha_num_attention_layers=config["mha_num_attention_layers"],
                 mha_ff_dim_factor=config["mha_ff_dim_factor"],
+                goal_encoder_type=config.get("goal_encoder_type", "goal_image"),  # Default to original behavior
+                goal_gmc_config=goal_gmc_config,  # Pass GoalGMC configuration
+                goal_gmc_weights_path=goal_gmc_weights_path,  # Pass GoalGMC weights path
             )
             vision_encoder = replace_bn_with_gn(vision_encoder)
         elif config["vision_encoder"] == "vit":
@@ -95,7 +111,7 @@ def load_model(
     else:
         raise ValueError(f"Invalid model type: {model_type}")
 
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=True)
     if model_type == "nomad":
         state_dict = checkpoint
         model.load_state_dict(state_dict, strict=False)

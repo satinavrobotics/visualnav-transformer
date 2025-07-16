@@ -1,10 +1,9 @@
 
-# global params for diffusion model
-# normalized min and max
-action_stats:
-  min: [-2.5, -4] # [min_dx, min_dy]
-  max: [5, 4] # [max_dx, max_dy]
+min_goal_distance_meters: 0.0
+max_goal_distance_meters: 10.0
 
+# Force rebuild dataset indices (set to true to regenerate cached indices)
+force_rebuild_indices: false
 
 # data specific params
 datasets:
@@ -191,3 +190,13 @@ datasets:
         p1: -0.000297
         p2:  0.000027
         k3:  0.0
+
+  tartanground:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/TartanGround_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.72
+    

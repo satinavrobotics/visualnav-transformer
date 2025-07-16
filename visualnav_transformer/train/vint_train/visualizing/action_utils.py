@@ -20,7 +20,8 @@ from visualnav_transformer import ROOT_TRAIN
 with open(
         # CHANGE
     # os.path.join(os.path.dirname(__file__), "../data/data_config.yaml"), "r"
-    os.path.join(ROOT_TRAIN, "vint_train/data/data_config.yaml"), "r"
+    #os.path.join(ROOT_TRAIN, "vint_train/data/data_config.yaml"), "r"
+    os.path.join("/app/visualnav-transformer/config/data/data_config.yaml"), "r"
 ) as f:
     data_config = yaml.safe_load(f)["datasets"]
 

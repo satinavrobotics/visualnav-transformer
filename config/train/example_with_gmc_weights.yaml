@@ -1,0 +1,74 @@
+# Example configuration for VisualNav Transformer with pre-trained GoalGMC weights
+# This configuration shows how to use a pre-trained GoalGMC model
+
+# Dataset Configuration
+dataset_name: "recon"
+data_folder: "/app/visualnav-transformer/dataset/recon/train"
+train_split_fraction: 0.9
+batch_size: 32
+num_workers: 8
+shuffle: True
+
+# Model Architecture
+model_type: nomad
+vision_encoder: nomad_vint
+encoding_size: 256
+obs_encoder: efficientnet-b0
+prebuilt_dino: False
+goal_encoder_type: image_pair  # Valid options: image_pair, position, image_pair_position
+mha_num_attention_heads: 4
+mha_num_attention_layers: 4
+mha_ff_dim_factor: 4
+down_dims: [64, 128, 256]
+
+# GoalGMC Configuration
+goal_gmc_config_path: config/goal_module/config.yaml  # Path to GoalGMC config file
+goal_gmc_weights_path: goal_module/evaluation/gmc_pogany/log_0/saved_models/gmc_dummy_goal_model.pth.tar  # Path to trained GoalGMC weights
+goal_gmc:
+  name: "goal_gmc"
+  common_dim: 64
+  latent_dim: 64
+  loss_type: "infonce"
+  learnable_temperature: false
+  initial_temperature: 0.1
+
+# Diffusion Model
+num_diffusion_iters: 10
+cond_predict_scale: False
+
+# Training Configuration
+goal_mask_prob: 0.5
+normalize: True
+context_size: 3
+alpha: 1e-4
+
+# Distance and Action Bounds
+distance:
+  min_dist_cat: 0
+  max_dist_cat: 20
+action:
+  min_dist_cat: 3
+  max_dist_cat: 20
+
+# Output Parameters
+len_traj_pred: 8
+learn_angle: False
+image_size: [96, 96]
+
+# Training Parameters
+epochs: 100
+lr: 1e-3
+optimizer: "adamw"
+weight_decay: 1e-4
+clip_grad_norm: 1.0
+
+# Logging Configuration
+print_log_freq: 100
+image_log_freq: 1000
+num_images_log: 8
+eval_fraction: 0.25
+mlflow_log_freq: 10
+eval_freq: 1
+
+# Checkpoint Configuration
+save_freq: 10

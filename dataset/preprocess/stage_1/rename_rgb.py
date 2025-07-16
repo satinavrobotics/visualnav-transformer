@@ -146,7 +146,7 @@ def copy_traj_and_rgb(src_root, dest_root):
  
 if __name__ == "__main__":
     # rename()
-    dir = "Sati_data/MuSoHu_320x240"
+    # dir = "Sati_data/MuSoHu_320x240"
     # move_traj(dir)
     # copy_traj_and_rgb("Sati_data/Sati_data_320x240", "Sati_data/Sati_data_rgb")
     # copy_traj_and_rgb("app/Sati_data_320x240", "/mnt/sati-data")

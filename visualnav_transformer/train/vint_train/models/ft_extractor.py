@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-#from efficientnet_pytorch import EfficientNet
+from efficientnet_pytorch import EfficientNet
 
 
 class DiNOV2Extractor(nn.Module):

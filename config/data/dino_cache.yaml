@@ -3,12 +3,13 @@ run_name: dino_cache
 
 # DINO cache parameters
 dino_model_type: large  # Options: small, base, large, giant
-# Meter-based chunking parameters (replaces frame-based parameters)
+# Hybrid chunking parameters (meters for max, frames for min)
 max_chunk_distance_m: 50.0  # Maximum distance per chunk in meters
 overlap_distance_m: 1.0     # Overlap distance between chunks in meters
-min_chunk_distance_m: 0.3   # Minimum distance for a chunk in meters
-batch_size: 32  # Batch size for feature extraction
+min_chunk_frames: 10          # Minimum number of frames for a chunk
+batch_size: 512  # Batch size for feature extraction
 keep_pt_files: True  # Keep the .pt files after creating the LMDB cache
+enable_progress_tracking: True  # Enable progress tracking for resumable processing
 
 # GPU settings
 gpu_ids: [0]
@@ -17,30 +18,13 @@ seed: 0
 
 # normalization for the action space
 normalize: True
-
 # context
 context_size: 3
-
-# distance bounds for distance and action and distance predictions
-distance:
-  min_dist_cat: 0
-  max_dist_cat: 20
-action:
-  min_dist_cat: 3
-  max_dist_cat: 20
-
 # action output params
 len_traj_pred: 8
-learn_angle: False
 
 # dataset specific parameters
 image_size: [320, 240] # width, height
 
-
-
-###########
-
-min_goal_distance_meters: 0.0
-max_goal_distance_meters: 10.0
 
 

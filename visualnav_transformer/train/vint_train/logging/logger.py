@@ -1,5 +1,18 @@
 import numpy as np
 
+# Import CLI formatter for enhanced display
+try:
+    from visualnav_transformer.train.vint_train.logging.cli_formatter import format_number
+except ImportError:
+    # Fallback if cli_formatter is not available
+    def format_number(num: float, precision: int = 4) -> str:
+        if abs(num) >= 1000:
+            return f"{num:.2e}"
+        elif abs(num) >= 1:
+            return f"{num:.{min(precision, 3)}f}"
+        else:
+            return f"{num:.{precision}f}"
+
 
 class Logger:
     def __init__(
@@ -23,9 +36,9 @@ class Logger:
         self.window_size = window_size
 
     def display(self) -> str:
-        latest = round(self.latest(), self.rounding)
-        average = round(self.average(), self.rounding)
-        moving_average = round(self.moving_average(), self.rounding)
+        latest = format_number(self.latest(), self.rounding)
+        average = format_number(self.average(), self.rounding)
+        moving_average = format_number(self.moving_average(), self.rounding)
         output = f"{self.full_name()}: {latest} - {self.window_size}pt moving_avg: {moving_average} - avg: {average}"
         return output
 

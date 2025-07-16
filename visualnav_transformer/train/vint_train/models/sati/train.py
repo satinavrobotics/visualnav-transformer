@@ -41,9 +41,10 @@ with open(
 ) as f:
     data_config = yaml.safe_load(f)
 # POPULATE ACTION STATS
-ACTION_STATS = {}
-for key in data_config["action_stats"]:
-    ACTION_STATS[key] = np.array(data_config["action_stats"][key])
+ACTION_STATS = {
+    "min": 0.0,
+    "max": 10.0,
+}
 
 
 
@@ -284,17 +285,20 @@ def train_sati(
                         logger = loggers[key]
                         logger.log_data(value.item())
 
+                # Use enhanced logger display instead of legacy logging
+                loggers.display_metrics(epoch, i, num_batches, use_latest=True)
+
                 data_log = {}
-                for key, logger in loggers.items():
+                for key, logger in loggers.all_loggers.items():
                     data_log[logger.full_name()] = logger.latest()
-                    if i % print_log_freq == 0 and print_log_freq != 0:
-                        print(
-                            f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
-                        )
 
                 if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
                     for key, val in data_log.items():
-                        mlflow.log_metric(key, val, step=global_step)
+                        # Additional safety check for NaN/infinite values before MLflow logging
+                        if not np.isnan(val) and np.isfinite(val):
+                            mlflow.log_metric(key, val, step=global_step)
+                        else:
+                            print(f"Warning: Skipping MLflow logging for {key}={val} (NaN/infinite value)")
 
             if image_log_freq != 0 and i % image_log_freq == 0:
                 visualize_diffusion_action_distribution(
@@ -456,17 +460,20 @@ def evaluate_sati(
                         logger = loggers[key]
                         logger.log_data(value.item())
 
+                # Use enhanced logger display instead of legacy logging
+                loggers.display_metrics(epoch, i, num_batches, use_latest=True)
+
                 data_log = {}
-                for key, logger in loggers.items():
+                for key, logger in loggers.all_loggers.items():
                     data_log[logger.full_name()] = logger.latest()
-                    if i % print_log_freq == 0 and print_log_freq != 0:
-                        print(
-                            f"(epoch {epoch}) (batch {i}/{num_batches - 1}) {logger.display()}"
-                        )
 
                 if use_mlflow and i % mlflow_log_freq == 0 and mlflow_log_freq != 0:
                     for key, val in data_log.items():
-                        mlflow.log_metric(key, val, step=global_step)
+                        # Additional safety check for NaN/infinite values before MLflow logging
+                        if not np.isnan(val) and np.isfinite(val):
+                            mlflow.log_metric(key, val, step=global_step)
+                        else:
+                            print(f"Warning: Skipping MLflow logging for {key}={val} (NaN/infinite value)")
 
             if image_log_freq != 0 and i % image_log_freq == 0:
                 visualize_diffusion_action_distribution(

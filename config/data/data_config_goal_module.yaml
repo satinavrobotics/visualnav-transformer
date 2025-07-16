@@ -1,0 +1,180 @@
+min_goal_distance_meters: 0.05
+max_goal_distance_meters: 10.0
+
+
+# data specific params
+datasets:
+  # dataset used for visualization
+  recon:
+    available: True
+    split: 0.9
+    data_folder: /app/Sati_data/Recon_320x240
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1 # how many goals are sampled per observation
+    negative_mining: True # negative mining from the ViNG paper (Shah et al.)
+    metric_waypoint_spacing: 0.25 # average spacing between waypoints (meters)
+
+    # OPTIONAL (FOR VISUALIZATION ONLY)
+    camera_metrics: # https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
+      camera_height: 0.95 # meters
+      camera_x_offset: 0.45 # distance between the center of the robot and the forward facing camera
+      camera_matrix:
+        fx: 272.547000
+        fy: 266.358000
+        cx: 320.000000
+        cy: 220.000000
+      dist_coeffs:
+        k1: -0.038483
+        k2: -0.010456
+        p1: 0.003930
+        p2: -0.001007
+        k3: 0.0
+
+  scand:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/SCAND_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.38
+
+  tartan_drive:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/Tartan_320x240
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.72
+
+  go_stanford:
+    split: 1.0
+    available: True
+    data_folder: /app/Sati_data/Go-Stanford_320x240
+    end_slack: 0
+    goals_per_obs: 2 # increase dataset size
+    negative_mining: True
+    metric_waypoint_spacing: 0.12
+
+  huron:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/Huron_320x240
+    end_slack: 3 # because many trajectories end in collisions
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.255
+
+  # add your own dataset params here:
+
+  alcazar:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/Alcazar_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.039
+    camera_metrics:
+      # adjust these two to your actual mounting
+      camera_height: 0.95        # meters
+      camera_x_offset: 0.45      # meters
+      camera_matrix:
+        fx: 342.98494
+        fy: 345.60372
+        cx: 333.38894
+        cy: 248.89681
+      dist_coeffs:
+        k1: -0.32224
+        k2:  0.08648
+        p1:  0.00087
+        p2: -0.00283
+        k3:  0.0
+
+  etna:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/Etna_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.060
+    camera_metrics:
+      camera_height: 0.95        # meters (adjust as needed)
+      camera_x_offset: 0.45      # meters (adjust as needed)
+      camera_matrix:
+        fx: 885.0151640142786
+        fy: 887.4400421574412
+        cx: 955.8928276892347
+        cy: 533.6380545801463
+      dist_coeffs:
+        k1: -0.2417804201533665
+        k2:  0.09739354891346044
+        p1:  0.0004826581413538147
+        p2:  0.00018843981521243447
+        k3: -0.022581239521843995
+
+  gnd:
+    available: False # more poses than images, need to resample rosbags for odometry sparsity
+    split: 1.0
+    data_folder: /app/Sati_data/GND_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.356
+    camera_metrics:
+      camera_height: 0.95        # meters (adjust to your setup)
+      camera_x_offset: 0.45      # meters (adjust to your setup)
+      camera_matrix:
+        fx: 372.249228
+        fy: 368.579114
+        cx: 329.004307
+        cy: 227.902136
+      dist_coeffs:
+        k1: -0.297079
+        k2:  0.067079
+        p1:  0.000428
+        p2: -0.001216
+        k3:  0.0
+
+  musohu:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/MuSoHu_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.243
+
+  katwijk:
+    available: True
+    split: 1.0
+    data_folder: /app/Sati_data/Katwijk_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.510
+
+  sit:
+    available: True
+    split: 0.0
+    data_folder: /app/Sati_data/SIT_320x240
+    end_slack: 0
+    goals_per_obs: 1
+    negative_mining: True
+    metric_waypoint_spacing: 0.063
+    camera_metrics:
+      camera_height: 0.95        # meters (set to your robot’s camera height)
+      camera_x_offset: 0.45      # meters (set to your forward‐facing camera offset)
+      camera_matrix:
+        fx: 1172.33539
+        fy: 1173.23513
+        cx:  947.83322
+        cy:  616.30818
+      dist_coeffs:
+        k1: -0.220444
+        k2:  0.064912
+        p1: -0.000297
+        p2:  0.000027
+        k3:  0.0

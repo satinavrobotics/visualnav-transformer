@@ -98,15 +98,15 @@ def setup_gpu(config):
 
 
 
-def create_meter_based_chunks(positions, max_chunk_distance_m=10.0, overlap_distance_m=1.0, min_chunk_distance_m=0.3):
+def create_meter_based_chunks(positions, max_chunk_distance_m=10.0, overlap_distance_m=1.0, min_chunk_frames=5):
     """
-    Create chunks based on meter-based advancement instead of frame count.
+    Create chunks based on meter-based advancement with frame-based minimum.
 
     Args:
         positions: List of [x, y] positions
         max_chunk_distance_m: Maximum distance per chunk (default 10m)
         overlap_distance_m: Overlap distance between chunks (default 1m)
-        min_chunk_distance_m: Minimum distance for a chunk (default 0.3m)
+        min_chunk_frames: Minimum number of frames for a chunk (default 5)
 
     Returns:
         List of (start_idx, end_idx) tuples for each chunk
@@ -127,14 +127,11 @@ def create_meter_based_chunks(positions, max_chunk_distance_m=10.0, overlap_dist
             current_distance += segment_distance
             end_idx = i
 
-        # Check if this would be the last chunk and it's too small
-        remaining_distance = 0.0
-        if end_idx < len(positions) - 1:
-            for i in range(end_idx + 1, len(positions)):
-                remaining_distance += calculate_distance_meters(positions[i-1], positions[i])
+        # Check if this would be the last chunk and it's too small (in frames)
+        remaining_frames = len(positions) - 1 - end_idx
 
-        # If remaining distance is less than min_chunk_distance_m, extend current chunk
-        if remaining_distance < min_chunk_distance_m and end_idx < len(positions) - 1:
+        # If remaining frames is less than min_chunk_frames, extend current chunk
+        if remaining_frames < min_chunk_frames and end_idx < len(positions) - 1:
             end_idx = len(positions) - 1
 
         chunks.append((start_idx, end_idx))

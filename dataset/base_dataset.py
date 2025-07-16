@@ -15,13 +15,23 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from visualnav_transformer.train.vint_train.data.data_utils import (
+from .data_utils import (
     to_local_coords,
     calculate_distance_meters,
     calculate_sin_cos,
     get_data_path,
     img_path_to_data,
 )
+
+# Import CLI formatter for enhanced error messages
+try:
+    from visualnav_transformer.train.vint_train.logging.cli_formatter import print_error, Symbols
+except ImportError:
+    # Fallback if cli_formatter is not available
+    def print_error(msg, symbol=None):
+        print(f"ERROR: {msg}")
+    class Symbols:
+        ERROR = '❌'
 
 
 class BaseViNTDataset(Dataset, ABC):
@@ -41,18 +51,18 @@ class BaseViNTDataset(Dataset, ABC):
         dataset_index: int,
         image_size: Tuple[int, int],
         waypoint_spacing: int,
-        min_goal_distance_meteres: float,
+        min_goal_distance_meters: float,
         max_goal_distance_meters: float,
         negative_mining: bool,
         len_traj_pred: int,
         context_size: int,
         end_slack: int = 0,
-        goals_per_obs: int = 1,
         normalize: bool = True,
+        force_rebuild_indices: bool = False,
     ):
         """
         Initialize the base dataset with common parameters.
-        
+
         Args:
             data_folder: Path to the data folder
             split: 'train' or 'test'
@@ -61,23 +71,16 @@ class BaseViNTDataset(Dataset, ABC):
             dataset_index: Index of the dataset
             image_size: Size of the images (width, height)
             waypoint_spacing: Spacing between waypoints
-            metric_waypoint_spacing: Metric spacing between waypoints
-            min_dist_cat: Minimum distance category
-            max_dist_cat: Maximum distance category
-            min_action_distance: Minimum action distance
-            max_action_distance: Maximum action distance
+            min_goal_distance_meters: Minimum goal distance in meters
+            max_goal_distance_meters: Maximum goal distance in meters
             negative_mining: Whether to use negative mining
             len_traj_pred: Length of trajectory prediction
-            learn_angle: Whether to learn angle
             context_size: Number of context frames
             end_slack: End slack
-            goals_per_obs: Number of goals per observation
             normalize: Whether to normalize
-            **kwargs: Additional parameters for subclasses
+            force_rebuild_indices: Whether to force rebuild dataset indices
         """
         super().__init__()
-        
-        # Store all common parameters
         self.data_folder = data_folder
         self.split = split
         self.split_ratio = split_ratio
@@ -85,38 +88,28 @@ class BaseViNTDataset(Dataset, ABC):
         self.dataset_index = dataset_index
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing
-        self.min_goal_distance_meteres = min_goal_distance_meteres
+        self.min_goal_distance_meters = min_goal_distance_meters
         self.max_goal_distance_meters = max_goal_distance_meters
         self.negative_mining = negative_mining
         self.len_traj_pred = len_traj_pred
         self.context_size = context_size
         self.end_slack = end_slack
-        self.goals_per_obs = goals_per_obs
         self.normalize = normalize
-        
-        # Load trajectory names from metadata
-        traj_names_file = os.path.join(self.data_folder, "dataset_metadata.json")
-        with open(traj_names_file, "r") as f:
-            json_data = json.load(f)
-        trajectories = json_data["trajectories"]
-        split_point = int(len(trajectories) * split_ratio)
-        trajectories = trajectories[:split_point] if split == "train" else trajectories[split_point:]
-        self.traj_names = [os.path.join(self.data_folder, traj["path"]) for traj in trajectories]
-        
+        self.force_rebuild_indices = force_rebuild_indices
         self.num_action_params = 3 # x, y, yaw
-        self.trajectory_cache = {}
-        # Load the index
-        self._load_index()
+        self._load_index(force_rebuild=force_rebuild_indices)
     
-    def _load_index(self) -> None:
+    def _load_index(self, force_rebuild=False) -> None:
         """
         Load or build the dataset index with pickle caching.
         """
         index_to_data_path = os.path.join(
             self.data_folder,
-            f"dataset_dist_{self.max_goal_distance_meters}_context_n{self.context_size}_slack_{self.end_slack}.pkl",
+            f"dataset_dist_{self.max_goal_distance_meters}.pkl",
         )
         try:
+            if force_rebuild:
+                raise FileNotFoundError
             # Load the index if it already exists
             with open(index_to_data_path, "rb") as f:
                 self.index_to_data, self.goals_index = pickle.load(f)
@@ -148,7 +141,10 @@ class BaseViNTDataset(Dataset, ABC):
         Returns:
             Tuple of (trajectory_name, goal_time, goal_is_negative)
         """
-        goal_offset = np.random.randint(0, max_goal_dist + 1)
+        min_goal_dist = 0 if self.negative_mining else 1
+        if max_goal_dist <= 0:
+            raise ValueError(f"Warning: max_goal_dist is {max_goal_dist} for {trajectory_name} at time {curr_time}")
+        goal_offset = np.random.randint(min_goal_dist, max_goal_dist + 1)
         if goal_offset == 0:
             trajectory_name, goal_time = self._sample_negative()
             return trajectory_name, goal_time, True
@@ -175,15 +171,11 @@ class BaseViNTDataset(Dataset, ABC):
         Returns:
             Dictionary containing trajectory data
         """
-        if trajectory_name in self.trajectory_cache:
-            return self.trajectory_cache[trajectory_name]
-        else:
-            # Load trajectory data from JSON file
-            traj_data_path = os.path.join(trajectory_name, "traj_data.json")
-            with open(traj_data_path, "r") as f:
-                traj_data = json.load(f)
-            self.trajectory_cache[trajectory_name] = traj_data
-            return traj_data
+        # Load trajectory data from JSON file
+        traj_data_path = os.path.join(trajectory_name, "traj_data.json")
+        with open(traj_data_path, "r") as f:
+            traj_data = json.load(f)
+        return traj_data
 
     def _compute_actions(self, traj_data, curr_time, goal_time, goal_is_negative):
         """
@@ -236,6 +228,11 @@ class BaseViNTDataset(Dataset, ABC):
         if self.normalize:
             actions[:, :2] /= self.max_goal_distance_meters
             goal_pos /= self.max_goal_distance_meters
+        
+        goal_yaw = yaw[-1] - yaw[0]
+        # convert to sin(yaw), cos(yaw)
+        goal_yaw = np.array([np.sin(goal_yaw), np.cos(goal_yaw)])
+        goal_pos = np.concatenate([goal_pos, goal_yaw])
 
         assert actions.shape == (
             self.len_traj_pred,
@@ -243,13 +240,14 @@ class BaseViNTDataset(Dataset, ABC):
         ), f"{actions.shape} and {(self.len_traj_pred, self.num_action_params)} should be equal"
         
         if goal_is_negative:
+            # TODO: set maximum frame distance (compute from frame rate statistics)
             distance = self.max_goal_distance_meters  # Use max distance for negatives
         else:
-            distance = calculate_distance_meters(traj_data["position"][curr_time], traj_data["position"][goal_time])
+            distance = (goal_time - curr_time) // self.waypoint_spacing
             
         action_mask = (
             (distance < self.max_goal_distance_meters)
-            and (distance > self.min_goal_distance_meteres)
+            and (distance > self.min_goal_distance_meters)
             and (not goal_is_negative)
         )
         
@@ -288,57 +286,5 @@ class BaseViNTDataset(Dataset, ABC):
         try:
             return img_path_to_data(image_path, self.image_size)
         except Exception as e:
-            print(f"Failed to load image {image_path} from filesystem: {e}")
+            print_error(f"Failed to load image {image_path}: {e}", Symbols.ERROR)
             return None
-
-    @abstractmethod
-    def _load_samples(self, trajectory_name, time, goal_trajectory_name, goal_time):
-        pass
-    
-    
-    def __getitem__(self, i: int) -> Tuple[torch.Tensor]:
-        """
-        Args:
-            i (int): index to ith datapoint
-        Returns:
-            Tuple of tensors containing the context, observation, goal, transformed context, transformed observation, transformed goal, distance label, and action label
-                obs_image (torch.Tensor): tensor of shape [3, H, W] containing the image of the robot's observation
-                goal_image (torch.Tensor): tensor of shape [3, H, W] containing the subgoal image
-                dist_label (torch.Tensor): tensor of shape (1,) containing the distance labels from the observation to the goal
-                action_label (torch.Tensor): tensor of shape (5, 2) or (5, 4) (if training with angle) containing the action labels from the observation to the goal
-                which_dataset (torch.Tensor): index of the datapoint in the dataset [for identifying the dataset for visualization when using multiple datasets]
-        """
-        f_curr, curr_time, max_goal_dist = self.index_to_data[i]
-        f_goal, goal_time, goal_is_negative = self._sample_goal(
-            f_curr, curr_time, max_goal_dist
-        )
-
-        # Load observation images, goal_images
-        obs_image, goal_image = self._load_samples(f_curr, curr_time, f_goal, goal_time)
-
-        # Load other trajectory data
-        curr_traj_data = self._get_trajectory(f_curr)
-        curr_traj_len = len(curr_traj_data["position"])
-        assert curr_time < curr_traj_len, f"{curr_time} and {curr_traj_len}"
-
-        goal_traj_data = self._get_trajectory(f_goal)
-        goal_traj_len = len(goal_traj_data["position"])
-        assert goal_time < goal_traj_len, f"{goal_time} an {goal_traj_len}"
-
-        # Compute actions using base class method
-        actions, goal_pos, distance, action_mask = self._compute_actions(
-            curr_traj_data, curr_time, goal_time, goal_is_negative
-        )
-
-        actions_torch = torch.as_tensor(actions, dtype=torch.float32)
-        actions_torch = calculate_sin_cos(actions_torch)
-
-        return (
-            torch.as_tensor(obs_image, dtype=torch.float32),
-            torch.as_tensor(goal_image, dtype=torch.float32),
-            actions_torch,
-            torch.as_tensor(distance, dtype=torch.int64),
-            torch.as_tensor(goal_pos, dtype=torch.float32),
-            torch.as_tensor(self.dataset_index, dtype=torch.int64),
-            torch.as_tensor(action_mask, dtype=torch.float32),
-        )
